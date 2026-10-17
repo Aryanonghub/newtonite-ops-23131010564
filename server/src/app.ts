@@ -1,5 +1,7 @@
 import express from 'express';
 import { pool } from './db';
+import { errorHandler } from './errors';
+import { authRouter } from './routes/auth';
 
 // Builds the Express app without starting it, so tests can use it with Supertest.
 export function createApp() {
@@ -12,5 +14,8 @@ export function createApp() {
     res.json({ ok: true });
   });
 
+  app.use(authRouter);
+
+  app.use(errorHandler); // must be registered last
   return app;
 }
