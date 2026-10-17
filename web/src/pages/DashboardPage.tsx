@@ -4,6 +4,10 @@ import { api } from '../api';
 import { ItemsTable } from '../components';
 import type { Item } from '../types';
 
+// Must match LIMIT in server/src/routes/dashboard.ts. The server returns at most this many
+// per panel and no total count, so a full panel means "there may be more", not "exactly 20".
+const PANEL_LIMIT = 20;
+
 interface Dashboard {
   assignedToMe: Item[];
   unassignedUrgent: Item[];
@@ -33,7 +37,9 @@ export function DashboardPage() {
 function Panel({ title, items, empty }: { title: string; items: Item[]; empty: string }) {
   return (
     <Paper>
-      <Typography variant="h6" sx={{ p: 2, pb: 0 }}>{title} ({items.length})</Typography>
+      <Typography variant="h6" sx={{ p: 2, pb: 0 }}>
+        {title} ({items.length >= PANEL_LIMIT ? `top ${PANEL_LIMIT}` : items.length})
+      </Typography>
       <ItemsTable items={items} empty={empty} />
     </Paper>
   );
