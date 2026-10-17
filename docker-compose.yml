@@ -31,5 +31,15 @@ services:
     # Migrate, seed (skipped if data exists), then start the API.
     command: sh -c "node dist/scripts/migrate.js && node dist/scripts/seed.js && node dist/index.js"
 
+  # Same image as the API, different command: polls outbox_jobs and runs them.
+  worker:
+    build: ./server
+    environment:
+      DATABASE_URL: postgres://ops:ops@db:5432/ops
+    depends_on:
+      db:
+        condition: service_healthy
+    command: node dist/worker.js
+
 volumes:
   pgdata:

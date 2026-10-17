@@ -20,7 +20,7 @@ export async function resetDb() {
   if (!rows[0].db.endsWith('_test')) throw new Error(`Refusing to wipe non-test database "${rows[0].db}"`);
   // TRUNCATE does not fire row triggers, so it can clear the append-only activity table.
   await pool.query(`TRUNCATE users, teams, memberships, work_items, comments, activity_events,
-                    idempotency_keys, outbox_jobs RESTART IDENTITY CASCADE`);
+                    idempotency_keys, outbox_jobs, notifications RESTART IDENTITY CASCADE`);
 }
 
 export interface TestUser {
