@@ -3,7 +3,7 @@ import type { PoolClient } from 'pg';
 import { pool } from '../db';
 
 export const DEMO_PASSWORD = 'password123';
-const ITEM_COUNT = 3000;
+const ITEM_COUNT = 20000;
 
 type Role = 'viewer' | 'member' | 'lead' | 'admin';
 
