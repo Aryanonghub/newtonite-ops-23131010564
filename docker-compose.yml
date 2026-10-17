@@ -41,5 +41,13 @@ services:
         condition: service_healthy
     command: node dist/worker.js
 
+  # React app built to static files, served by nginx, which also forwards /api to the API.
+  web:
+    build: ./web
+    ports:
+      - "8088:80"
+    depends_on:
+      - api
+
 volumes:
   pgdata:

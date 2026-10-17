@@ -1,0 +1,51 @@
+export type Status = 'open' | 'in_progress' | 'awaiting_approval' | 'resolved' | 'closed';
+export type Role = 'viewer' | 'member' | 'lead' | 'admin';
+
+export interface Item {
+  id: number;
+  title: string;
+  description: string;
+  type: string;
+  priority: string;
+  status: Status;
+  team_id: number;
+  team_name: string;
+  assignee_id: number | null;
+  assignee_name: string | null;
+  created_by: number;
+  created_by_name: string;
+  due_date: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ItemPage {
+  items: Item[];
+  nextCursor: string | null;
+}
+
+export interface Me {
+  id: number;
+  email: string;
+  name: string;
+  teams: { id: number; name: string; role: Role }[];
+}
+
+export interface ActivityEvent {
+  id: number;
+  kind: string;
+  field: string | null;
+  from_value: string | null;
+  to_value: string | null;
+  to_name: string | null;
+  comment: string | null;
+  actor_name: string;
+  created_at: string;
+}
+
+export const STATUSES: Status[] = ['open', 'in_progress', 'awaiting_approval', 'resolved', 'closed'];
+export const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
+export const TYPES = ['incident', 'customer_issue', 'payment', 'compliance', 'task'];
+
+export const label = (value: string) => value.replace(/_/g, ' ');
