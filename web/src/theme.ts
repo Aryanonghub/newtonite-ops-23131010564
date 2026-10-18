@@ -1,33 +1,36 @@
 import { createTheme } from '@mui/material';
 
-// One place for the look: a calm light canvas, a dark sidebar, one accent colour, and thin borders
-// instead of heavy shadows. Status and priority colours live here too, so every page agrees.
-export const SIDEBAR_BG = '#0f1117';
-export const SIDEBAR_TEXT = '#c9cdd6';
+// One place for the look: a black icon rail, a white canvas, one blue accent, thin borders instead of
+// heavy shadows. Status and priority colours live here too, so every page agrees.
+export const RAIL_BG = '#0e0f12';
+export const RAIL_TEXT = '#c9cdd6';
+export const ACCENT = '#1f5eff';
+export const PANEL_BG = '#f5f7fb'; // light blue-grey for detail grids and table headers
 
-export const STATUS_COLORS: Record<string, { fg: string; bg: string }> = {
-  open: { fg: '#475569', bg: '#eef1f5' },
-  in_progress: { fg: '#9a4a05', bg: '#fdf0dc' },
-  awaiting_approval: { fg: '#6d28d9', bg: '#efe9fd' },
-  resolved: { fg: '#15803d', bg: '#e3f5e9' },
-  closed: { fg: '#5d6470', bg: '#eeeff1' },
+// Outlined pills: text, fill and border per status.
+export const STATUS_COLORS: Record<string, { fg: string; bg: string; border: string }> = {
+  open: { fg: '#1f5eff', bg: '#eef3ff', border: '#9db8ff' },
+  in_progress: { fg: '#b45309', bg: '#fff8e6', border: '#f5c76b' },
+  awaiting_approval: { fg: '#c2410c', bg: '#fff1e8', border: '#f8b48a' },
+  resolved: { fg: '#15803d', bg: '#ecfbf1', border: '#86d9a5' },
+  closed: { fg: '#0f766e', bg: '#e9f8f6', border: '#7fd1c6' },
 };
 
-export const PRIORITY_COLORS: Record<string, string> = {
-  urgent: '#dc2626',
-  high: '#ea580c',
-  medium: '#2563eb',
-  low: '#94a3b8',
+export const PRIORITY_COLORS: Record<string, { fg: string; bg: string }> = {
+  urgent: { fg: '#b91c1c', bg: '#fde2e2' },
+  high: { fg: '#c2410c', bg: '#ffe9d9' },
+  medium: { fg: '#a16207', bg: '#fdf3d3' },
+  low: { fg: '#15803d', bg: '#dcf5e4' },
 };
 
 export const theme = createTheme({
   palette: {
-    primary: { main: '#4f46e5' },
-    background: { default: '#f6f7f9', paper: '#ffffff' },
-    text: { primary: '#111827', secondary: '#6b7280' },
-    divider: '#e5e7eb',
+    primary: { main: ACCENT },
+    background: { default: '#ffffff', paper: '#ffffff' },
+    text: { primary: '#14161a', secondary: '#6b7280' },
+    divider: '#e6e9ef',
   },
-  shape: { borderRadius: 10 },
+  shape: { borderRadius: 8 },
   typography: {
     fontFamily: '"Inter", system-ui, -apple-system, "Segoe UI", sans-serif',
     h4: { fontWeight: 700, letterSpacing: '-0.02em' },
@@ -39,17 +42,19 @@ export const theme = createTheme({
   components: {
     MuiPaper: {
       defaultProps: { elevation: 0 },
-      styleOverrides: { root: { border: '1px solid #e5e7eb' } },
+      styleOverrides: { root: { border: '1px solid #e6e9ef' } },
     },
     MuiButton: { defaultProps: { disableElevation: true } },
-    MuiChip: { styleOverrides: { root: { fontWeight: 600 } } },
     MuiTableCell: {
       styleOverrides: {
-        head: { fontWeight: 600, color: '#6b7280', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' },
+        head: { fontWeight: 600, color: '#14161a', fontSize: 13, backgroundColor: PANEL_BG },
+        root: { borderColor: '#eef0f4' },
       },
     },
-    // Snackbars and menus float above content, so they keep a soft shadow and lose the border.
+    MuiTab: { styleOverrides: { root: { textTransform: 'none', fontWeight: 600, fontSize: 16, minHeight: 48 } } },
+    // Floating surfaces keep a soft shadow and lose the border.
     MuiMenu: { styleOverrides: { paper: { border: 'none', boxShadow: '0 8px 24px rgba(15,17,23,0.12)' } } },
+    MuiDrawer: { styleOverrides: { paper: { border: 'none' } } },
     MuiSnackbarContent: { styleOverrides: { root: { border: 'none' } } },
   },
 });

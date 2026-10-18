@@ -1,18 +1,18 @@
-import {
-  AppBar, Badge, Box, Button, Divider, Drawer, IconButton, List, ListItemButton, ListItemText, Menu, MenuItem,
-  Stack, Toolbar, Typography,
-} from '@mui/material';
+import ConfirmationNumberOutlined from '@mui/icons-material/ConfirmationNumberOutlined';
+import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
+import NotificationsNoneOutlined from '@mui/icons-material/NotificationsNoneOutlined';
+import SpaceDashboardOutlined from '@mui/icons-material/SpaceDashboardOutlined';
+import { Badge, Box, Divider, IconButton, Menu, MenuItem, Stack, Tooltip, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { api, getToken, setToken } from './api';
-import { Brand } from './brand';
+import { LOGO_SRC } from './brand';
 import { PersonAvatar } from './components';
 import { DashboardPage } from './pages/DashboardPage';
-import { ItemPage } from './pages/ItemPage';
 import { ItemsPage } from './pages/ItemsPage';
 import { LoginPage } from './pages/LoginPage';
-import { SIDEBAR_BG, SIDEBAR_TEXT } from './theme';
+import { RAIL_BG, RAIL_TEXT } from './theme';
 import { timeAgo, type Me } from './types';
 
 export function useMe() {
@@ -34,37 +34,19 @@ function RequireAuth() {
   return getToken() ? <Layout /> : <Navigate to="/login" replace />;
 }
 
-const SIDEBAR_WIDTH = 248;
+const RAIL = 72;
 
-// Desktop: a fixed dark sidebar. Phone: a top bar with a menu button that slides the same sidebar in.
+// A black icon rail on the left (a bar across the top on phones), and the page on a white canvas.
 function Layout() {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const sidebar = <Sidebar onNavigate={() => setMobileOpen(false)} />;
-
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      <Drawer variant="permanent" sx={{ display: { xs: 'none', md: 'block' }, width: SIDEBAR_WIDTH, flexShrink: 0 }}
-        slotProps={{ paper: { sx: { width: SIDEBAR_WIDTH, bgcolor: SIDEBAR_BG, border: 'none' } } }}>
-        {sidebar}
-      </Drawer>
-      <Drawer variant="temporary" open={mobileOpen} onClose={() => setMobileOpen(false)} sx={{ display: { md: 'none' } }}
-        slotProps={{ paper: { sx: { width: SIDEBAR_WIDTH, bgcolor: SIDEBAR_BG, border: 'none' } } }}>
-        {sidebar}
-      </Drawer>
-
-      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-        <AppBar position="sticky" elevation={0} sx={{ display: { md: 'none' }, bgcolor: SIDEBAR_BG }}>
-          <Toolbar>
-            <IconButton color="inherit" edge="start" onClick={() => setMobileOpen(true)} aria-label="open menu">☰</IconButton>
-            <Box sx={{ ml: 1, flexGrow: 1 }}><Brand dark /></Box>
-            <Notifications />
-          </Toolbar>
-        </AppBar>
-        <Box sx={{ px: { xs: 2, md: 5 }, py: { xs: 3, md: 4 }, maxWidth: 1280, mx: 'auto' }}>
+    <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, minHeight: '100vh' }}>
+      <Rail />
+      <Box sx={{ flexGrow: 1, minWidth: 0, ml: { md: `${RAIL}px` } }}>
+        <Box sx={{ px: { xs: 2, md: 5 }, py: { xs: 3, md: 4 }, maxWidth: 1400, mx: 'auto' }}>
           <Routes>
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/items" element={<ItemsPage />} />
-            <Route path="/items/:id" element={<ItemPage />} />
+            {/* The list stays mounted and the item opens as a panel over it, so filters survive. */}
+            <Route path="/items/:id?" element={<ItemsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Box>
@@ -73,17 +55,12 @@ function Layout() {
   );
 }
 
-const NAV = [
-  { to: '/', label: 'Dashboard' },
-  { to: '/items', label: 'Work items' },
-];
-
-function Sidebar({ onNavigate }: { onNavigate: () => void }) {
+function Rail() {
   const { data: me } = useMe();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const isActive = (to: string) => (to === '/' ? location.pathname === '/' : location.pathname.startsWith(to));
+  const [userMenu, setUserMenu] = useState<HTMLElement | null>(null);
 
   const logout = () => {
     setToken(null);
@@ -92,54 +69,62 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
   };
 
   return (
-    <Stack sx={{ height: '100%', color: SIDEBAR_TEXT, p: 2 }}>
-      <Stack direction="row" sx={{ alignItems: 'center', px: 1, py: 1, mb: 2 }}>
-        <Box sx={{ flexGrow: 1 }}><Brand dark /></Box>
-        <Box sx={{ display: { xs: 'none', md: 'block' } }}><Notifications /></Box>
-      </Stack>
-
-      <List disablePadding>
-        {NAV.map((n) => (
-          <ListItemButton key={n.to} component={Link} to={n.to} onClick={onNavigate} selected={isActive(n.to)}
-            sx={{
-              borderRadius: 2, mb: 0.5, color: SIDEBAR_TEXT,
-              '&.Mui-selected, &.Mui-selected:hover': { bgcolor: 'rgba(255,255,255,0.08)', color: '#fff' },
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.05)' },
-            }}>
-            <ListItemText primary={n.label} slotProps={{ primary: { sx: { fontWeight: 600, fontSize: 14 } } }} />
-          </ListItemButton>
-        ))}
-      </List>
+    <Stack component="nav" sx={{
+      bgcolor: RAIL_BG, color: RAIL_TEXT, alignItems: 'center', gap: 1, zIndex: 1200,
+      flexDirection: { xs: 'row', md: 'column' }, px: { xs: 1.5, md: 0 }, py: { xs: 1, md: 2 },
+      position: { xs: 'sticky', md: 'fixed' }, top: 0, left: 0,
+      width: { xs: '100%', md: RAIL }, height: { md: '100vh' },
+    }}>
+      <Box component={Link} to="/" aria-label="Newtonite Ops home" sx={{ mb: { md: 2 }, mr: { xs: 1, md: 0 } }}>
+        <Box component="img" src={LOGO_SRC} alt="Newtonite" sx={{ width: 40, height: 40, borderRadius: '50%',
+          display: 'block', boxShadow: '0 0 0 1px rgba(255,255,255,0.18)' }} />
+      </Box>
+      <RailLink to="/" label="Dashboard" active={location.pathname === '/'} icon={<SpaceDashboardOutlined />} />
+      <RailLink to="/items" label="Work items" active={location.pathname.startsWith('/items')} icon={<ConfirmationNumberOutlined />} />
+      <Notifications />
 
       <Box sx={{ flexGrow: 1 }} />
 
       {me && (
         <>
-          <Typography variant="caption" sx={{ px: 1, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Your teams
-          </Typography>
-          <Stack sx={{ px: 1, mt: 1, mb: 2 }} spacing={0.5}>
-            {me.teams.map((t) => (
-              <Stack key={t.id} direction="row" sx={{ justifyContent: 'space-between', fontSize: 13 }}>
-                <span>{t.name}</span>
-                <Box component="span" sx={{ color: '#9ca3af', textTransform: 'capitalize' }}>{t.role}</Box>
+          <Tooltip title={me.name} placement="right">
+            <IconButton onClick={(e) => setUserMenu(e.currentTarget)} aria-label="account">
+              <PersonAvatar name={me.name} size={34} />
+            </IconButton>
+          </Tooltip>
+          <Menu anchorEl={userMenu} open={!!userMenu} onClose={() => setUserMenu(null)}
+            anchorOrigin={{ vertical: 'top', horizontal: 'right' }} transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}>
+            <Box sx={{ px: 2, py: 1, minWidth: 240 }}>
+              <Typography variant="subtitle2">{me.name}</Typography>
+              <Typography variant="caption" color="text.secondary">{me.email}</Typography>
+              <Stack sx={{ mt: 1 }} spacing={0.5}>
+                {me.teams.map((t) => (
+                  <Stack key={t.id} direction="row" sx={{ justifyContent: 'space-between', fontSize: 13 }}>
+                    <span>{t.name}</span>
+                    <Box component="span" sx={{ color: 'text.secondary', textTransform: 'capitalize' }}>{t.role}</Box>
+                  </Stack>
+                ))}
               </Stack>
-            ))}
-          </Stack>
-          <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', mb: 1.5 }} />
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', px: 1 }}>
-            <PersonAvatar name={me.name} size={32} />
-            <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-              <Typography variant="body2" noWrap sx={{ color: '#fff', fontWeight: 600 }}>{me.name}</Typography>
-              <Typography variant="caption" noWrap sx={{ color: '#9ca3af', display: 'block' }}>{me.email}</Typography>
             </Box>
-          </Stack>
-          <Button onClick={logout} size="small" sx={{ mt: 1.5, color: SIDEBAR_TEXT, justifyContent: 'flex-start', px: 1 }}>
-            Log out
-          </Button>
+            <Divider />
+            <MenuItem onClick={logout}><LogoutOutlined fontSize="small" sx={{ mr: 1 }} />Log out</MenuItem>
+          </Menu>
         </>
       )}
     </Stack>
+  );
+}
+
+function RailLink({ to, label, icon, active }: { to: string; label: string; icon: ReactNode; active: boolean }) {
+  return (
+    <Tooltip title={label} placement="right">
+      <IconButton component={Link} to={to} aria-label={label} sx={{
+        width: 48, height: 48, borderRadius: 2, color: active ? '#fff' : RAIL_TEXT,
+        bgcolor: active ? 'rgba(255,255,255,0.12)' : 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
+      }}>
+        {icon}
+      </IconButton>
+    </Tooltip>
   );
 }
 
@@ -156,10 +141,14 @@ function Notifications() {
 
   return (
     <>
-      <IconButton sx={{ color: SIDEBAR_TEXT }} onClick={(e) => setAnchor(e.currentTarget)} aria-label="notifications">
-        <Badge badgeContent={list.length} color="primary" max={9}>🔔</Badge>
-      </IconButton>
+      <Tooltip title="Notifications" placement="right">
+        <IconButton onClick={(e) => setAnchor(e.currentTarget)} aria-label="notifications"
+          sx={{ width: 48, height: 48, borderRadius: 2, color: RAIL_TEXT, '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
+          <Badge badgeContent={list.length} color="primary" max={9}><NotificationsNoneOutlined /></Badge>
+        </IconButton>
+      </Tooltip>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
         slotProps={{ paper: { sx: { width: 360, maxHeight: 440 } } }}>
         <Typography variant="subtitle2" sx={{ px: 2, py: 1 }}>Notifications</Typography>
         {list.length === 0 && <MenuItem disabled>Nothing yet</MenuItem>}

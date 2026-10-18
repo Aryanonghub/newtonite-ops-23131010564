@@ -1,13 +1,14 @@
+import CloseRounded from '@mui/icons-material/CloseRounded';
 import {
-  Alert, AlertTitle, Box, Button, Divider, MenuItem, Paper, Snackbar, Stack, Step, StepLabel, Stepper, TextField,
+  Alert, AlertTitle, Box, Button, IconButton, MenuItem, Paper, Snackbar, Stack, Step, StepLabel, Stepper, TextField,
   Typography,
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { useState, type ReactNode } from 'react';
 import { ApiError, api } from '../api';
 import { useMe } from '../App';
-import { DueDate, Person, PersonAvatar, PriorityChip, StatusChip } from '../components';
+import { DetailGrid, DueDate, Person, PersonAvatar, PriorityChip, StatusChip } from '../components';
+import { PANEL_BG } from '../theme';
 import { PRIORITIES, STATUSES, label, timeAgo, type ActivityEvent, type Item } from '../types';
 import { ACTIONS, atLeast, canApprove, nextStep, roleIn } from '../workflow';
 
@@ -19,8 +20,11 @@ interface Change {
   success: string;
 }
 
-export function ItemPage() {
-  const id = Number(useParams().id);
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+// The item, shown as a panel that slides over the work items list.
+export function ItemPanel({ id, onClose }: { id: number; onClose: () => void }) {
   const { data: me } = useMe();
   const queryClient = useQueryClient();
   const itemKey = ['item', id];
@@ -77,9 +81,18 @@ export function ItemPage() {
     queryClient.invalidateQueries({ queryKey: ['activity', id] });
   };
 
-  if (itemQuery.error) return <Alert severity="error">{itemQuery.error.message}</Alert>;
+  if (itemQuery.error) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Stack direction="row" sx={{ justifyContent: 'flex-end', mb: 2 }}>
+          <IconButton onClick={onClose} aria-label="Close"><CloseRounded /></IconButton>
+        </Stack>
+        <Alert severity="error">{itemQuery.error.message}</Alert>
+      </Box>
+    );
+  }
   const item = itemQuery.data;
-  if (!item || !me) return <Typography>Loading…</Typography>;
+  if (!item || !me) return <Typography sx={{ p: 3 }}>Loading…</Typography>;
 
   const role = roleIn(me, item.team_id);
   const submittedByMe = item.submitted_by === me.id;
@@ -109,126 +122,149 @@ export function ItemPage() {
     );
   };
 
+  // 'resolved' is the Approve button, the only one that also needs the four-eyes check.
+  const actions = ACTIONS[item.status]
+    .filter((a) => atLeast(role, a.minRole) && (a.to !== 'resolved' || canApprove(role, submittedByMe)));
+  const canEdit = atLeast(role, 'member');
+
   return (
-    <Stack spacing={2}>
-      <Button component={Link} to="/items" size="small" sx={{ alignSelf: 'flex-start', color: 'text.secondary', px: 0 }}>
-        ← Work items
-      </Button>
-
-      {error && (error.status === 409 ? (
-        <Alert severity="warning" action={<Button color="inherit" onClick={reload}>Reload</Button>}>
-          <AlertTitle>This item changed, reload</AlertTitle>
-          {error.message /* who got there first, e.g. "Priya approved it since you loaded this item." */}
-        </Alert>
-      ) : (
-        <Alert severity="error" onClose={() => setError(null)}>{error.message}</Alert>
-      ))}
-
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) 300px' }, gap: 3, alignItems: 'start' }}>
-        <Stack spacing={3} sx={{ minWidth: 0 }}>
-          <Paper sx={{ p: { xs: 2, sm: 3 } }}>
-            {draft ? (
-              <Stack spacing={2}>
-                <Typography variant="h6">Edit item</Typography>
-                <TextField label="Title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
-                <TextField label="Description" multiline minRows={3} value={draft.description}
-                  onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
-                <TextField select label="Priority" value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value })}>
-                  {PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
-                </TextField>
-                <TextField label="Due date" type="date" value={draft.due_date} slotProps={{ inputLabel: { shrink: true } }}
-                  onChange={(e) => setDraft({ ...draft, due_date: e.target.value })} />
-                <Stack direction="row" spacing={1}>
-                  <Button variant="contained" onClick={saveEdit} disabled={change.isPending}>Save</Button>
-                  <Button onClick={() => setDraft(null)}>Cancel</Button>
-                </Stack>
-              </Stack>
-            ) : (
-              <>
-                <Typography variant="caption" color="text.secondary">
-                  #{item.id} · {item.team_name} · {label(item.type)}
-                </Typography>
-                <Typography variant="h5" sx={{ mt: 0.5 }}>{item.title}</Typography>
-                <WorkflowSteps status={item.status} />
-                <Typography sx={{ whiteSpace: 'pre-wrap', color: item.description ? 'text.primary' : 'text.secondary' }}>
-                  {item.description || 'No description.'}
-                </Typography>
-
-                <Box sx={{ mt: 3, p: 2, borderRadius: 2, bgcolor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
-                  <Typography variant="body2" sx={{ mb: 1.5 }}>
-                    <b>Next step:</b> {nextStep(item.status, role, item.team_name, submittedByMe)}
-                  </Typography>
-                  <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
-                    {item.status === 'open' && atLeast(role, 'member') && (
-                      <Button variant="contained" onClick={claim} disabled={change.isPending}>Claim</Button>
-                    )}
-                    {ACTIONS[item.status]
-                      // 'resolved' is the Approve button, the only one that also needs the four-eyes check.
-                      .filter((a) => atLeast(role, a.minRole) && (a.to !== 'resolved' || canApprove(role, submittedByMe)))
-                      .map((a, i) => (
-                        <Button key={a.to} variant={i === 0 ? 'contained' : 'outlined'} onClick={() => transition(a.to, a.done)}
-                          disabled={change.isPending}>
-                          {a.label}
-                        </Button>
-                      ))}
-                    {atLeast(role, 'member') && (
-                      <Button onClick={() => setDraft({
-                        title: item.title, description: item.description, priority: item.priority,
-                        due_date: item.due_date ?? '', version: item.version,
-                      })}>Edit</Button>
-                    )}
-                  </Stack>
-                </Box>
-              </>
-            )}
-          </Paper>
-
-          <Paper sx={{ p: { xs: 2, sm: 3 } }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>Activity</Typography>
-            <Timeline events={activity.data?.events ?? []} />
-            {atLeast(role, 'member') && (
-              <>
-                <Divider sx={{ my: 2 }} />
-                <Stack direction="row" spacing={1}>
-                  <TextField size="small" fullWidth placeholder="Add a comment" value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)} />
-                  <Button variant="contained" disabled={!commentText.trim() || comment.isPending}
-                    onClick={() => comment.mutate(commentText, { onSuccess: () => setCommentText('') })}>
-                    Comment
-                  </Button>
-                </Stack>
-                {comment.error && <Alert severity="error" sx={{ mt: 1 }}>{comment.error.message}</Alert>}
-              </>
-            )}
-          </Paper>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) 300px' }, minHeight: '100%' }}>
+      {/* Main column: what the item is and what happened to it */}
+      <Box sx={{ p: { xs: 2, sm: 4 }, minWidth: 0 }}>
+        <Stack direction="row" sx={{ alignItems: 'center', mb: 2 }}>
+          <Typography sx={{ flexGrow: 1, fontWeight: 600 }}>
+            {item.team_name} <Box component="span" sx={{ color: 'text.secondary', mx: 1 }}>›</Box> #{item.id}
+          </Typography>
+          <IconButton onClick={onClose} aria-label="Close" sx={{ border: '1px solid', borderColor: 'divider' }}>
+            <CloseRounded fontSize="small" />
+          </IconButton>
         </Stack>
 
-        <Paper sx={{ p: 2.5, position: { md: 'sticky' }, top: { md: 24 } }}>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>Details</Typography>
-          <Detail name="Status"><StatusChip status={item.status} /></Detail>
-          <Detail name="Priority"><PriorityChip priority={item.priority} /></Detail>
-          <Detail name="Assignee"><Person name={item.assignee_name} short /></Detail>
-          {item.submitted_by_name && <Detail name="Submitted by"><Person name={item.submitted_by_name} short /></Detail>}
-          <Detail name="Created by"><Person name={item.created_by_name} short /></Detail>
-          <Detail name="Team"><Typography variant="body2">{item.team_name}</Typography></Detail>
-          <Detail name="Due"><DueDate item={item} /></Detail>
-          <Detail name="Updated">
-            <Typography variant="body2" title={new Date(item.updated_at).toLocaleString()}>{timeAgo(item.updated_at)}</Typography>
-          </Detail>
-          <Detail name="Version"><Typography variant="body2" color="text.secondary">v{item.version}</Typography></Detail>
-        </Paper>
+        {error && (error.status === 409 ? (
+          <Alert severity="warning" sx={{ mb: 2 }} action={<Button color="inherit" onClick={reload}>Reload</Button>}>
+            <AlertTitle>This item changed, reload</AlertTitle>
+            {error.message /* who got there first, e.g. "Priya approved it since you loaded this item." */}
+          </Alert>
+        ) : (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error.message}</Alert>
+        ))}
+
+        {draft ? (
+          <Stack spacing={2} sx={{ mb: 3 }}>
+            <Typography variant="h6">Edit item</Typography>
+            <TextField label="Title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+            <TextField label="Description" multiline minRows={3} value={draft.description}
+              onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+            <TextField select label="Priority" value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value })}>
+              {PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+            </TextField>
+            <TextField label="Due date" type="date" value={draft.due_date} slotProps={{ inputLabel: { shrink: true } }}
+              onChange={(e) => setDraft({ ...draft, due_date: e.target.value })} />
+            <Stack direction="row" spacing={1}>
+              <Button variant="contained" onClick={saveEdit} disabled={change.isPending}>Save</Button>
+              <Button onClick={() => setDraft(null)}>Cancel</Button>
+            </Stack>
+          </Stack>
+        ) : (
+          <>
+            <Typography variant="h5" sx={{ fontSize: { xs: 22, md: 26 } }}>{item.title}</Typography>
+            <Typography sx={{ whiteSpace: 'pre-wrap', mt: 1.5, color: item.description ? 'text.primary' : 'text.secondary' }}>
+              {item.description || 'No description.'}
+            </Typography>
+            <WorkflowSteps status={item.status} />
+            <DetailGrid title="Item details" rows={[
+              ['Type', <span style={{ textTransform: 'capitalize' }}>{label(item.type)}</span>],
+              ['Team', item.team_name],
+              ['Created by', <Person name={item.created_by_name} short />],
+              ['Created on', formatDate(item.created_at)],
+              ['Due date', <DueDate item={item} />],
+              ['Version', `v${item.version}`],
+            ]} />
+          </>
+        )}
+
+        <Typography variant="h6" sx={{ mt: 4, mb: 2 }}>Activity</Typography>
+        <Timeline events={activity.data?.events ?? []} />
+        {canEdit && (
+          <Stack direction="row" spacing={1.5} sx={{ mt: 1 }}>
+            <PersonAvatar name={me.name} size={32} />
+            <Paper sx={{ flexGrow: 1, p: 1.5 }}>
+              <TextField variant="standard" fullWidth multiline minRows={2} placeholder="Leave a comment…" value={commentText}
+                onChange={(e) => setCommentText(e.target.value)} slotProps={{ input: { disableUnderline: true } }} />
+              <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
+                <Button variant="contained" size="small" disabled={!commentText.trim() || comment.isPending}
+                  onClick={() => comment.mutate(commentText, { onSuccess: () => setCommentText('') })}>
+                  Comment
+                </Button>
+              </Stack>
+            </Paper>
+          </Stack>
+        )}
+        {comment.error && <Alert severity="error" sx={{ mt: 1 }}>{comment.error.message}</Alert>}
       </Box>
+
+      {/* Right column: who, the key facts, and what to do next */}
+      <Stack sx={{ borderLeft: { md: '1px solid' }, borderTop: { xs: '1px solid', md: 'none' }, borderColor: 'divider', p: 3 }}>
+        <Section title="Assignee details">
+          <Field name="Assignee"><Person name={item.assignee_name} short /></Field>
+          {item.submitted_by_name && <Field name="Submitted by"><Person name={item.submitted_by_name} short /></Field>}
+        </Section>
+        <Section title="Other information">
+          <Field name="Status"><StatusChip status={item.status} testId="item-status" /></Field>
+          <Field name="Priority"><PriorityChip priority={item.priority} /></Field>
+          <Field name="Last updated">
+            <Typography variant="body2" title={formatDate(item.updated_at)}>{timeAgo(item.updated_at)}</Typography>
+          </Field>
+        </Section>
+
+        <Box sx={{ flexGrow: 1 }} />
+
+        <Box sx={{ position: { md: 'sticky' }, bottom: 0, bgcolor: 'background.paper', pt: 2 }}>
+          <Box sx={{ bgcolor: PANEL_BG, borderRadius: 2, p: 1.5, mb: 1.5 }}>
+            <Typography variant="body2">
+              <b>Next step:</b> {nextStep(item.status, role, item.team_name, submittedByMe)}
+            </Typography>
+          </Box>
+          <Stack spacing={1}>
+            {item.status === 'open' && atLeast(role, 'member') && (
+              <Button variant="contained" size="large" fullWidth onClick={claim} disabled={change.isPending}>Claim</Button>
+            )}
+            {actions.map((a, i) => (
+              <Button key={a.to} variant={i === 0 ? 'contained' : 'outlined'} size="large" fullWidth
+                onClick={() => transition(a.to, a.done)} disabled={change.isPending}>
+                {a.label}
+              </Button>
+            ))}
+            {canEdit && !draft && (
+              <Button fullWidth onClick={() => setDraft({
+                title: item.title, description: item.description, priority: item.priority,
+                due_date: item.due_date ?? '', version: item.version,
+              })}>Edit</Button>
+            )}
+          </Stack>
+        </Box>
+      </Stack>
 
       <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
         <Alert severity="success" variant="filled" onClose={() => setToast(null)}>{toast}</Alert>
       </Snackbar>
-    </Stack>
+    </Box>
   );
 }
 
-// One label/value row in the Details card.
-function Detail({ name, children }: { name: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Box sx={{ mb: 3 }}>
+      <Typography variant="subtitle1" sx={{ fontWeight: 700, pb: 1, mb: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+        {title}
+      </Typography>
+      {children}
+    </Box>
+  );
+}
+
+function Field({ name, children }: { name: string; children: ReactNode }) {
   return (
     <Stack direction="row" sx={{ py: 1, alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
       <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>{name}</Typography>
@@ -265,15 +301,15 @@ function Timeline({ events }: { events: ActivityEvent[] }) {
             {i < events.length - 1 && <Box sx={{ flexGrow: 1, width: 2, bgcolor: 'divider', my: 0.5 }} />}
           </Stack>
           <Box sx={{ pb: 2.5, flexGrow: 1, minWidth: 0 }}>
-            <Typography variant="body2"><b>{e.actor_name}</b> {describe(e)}</Typography>
-            {/* Hover shows the exact date and time. */}
-            <Typography variant="caption" color="text.secondary" title={new Date(e.created_at).toLocaleString()}>
-              {timeAgo(e.created_at)}
+            <Typography variant="body2">
+              <b>{e.actor_name}</b> {describe(e)}
+              {/* Hover shows the exact date and time. */}
+              <Box component="span" title={new Date(e.created_at).toLocaleString()} sx={{ color: 'text.secondary', ml: 1 }}>
+                {timeAgo(e.created_at)}
+              </Box>
             </Typography>
             {e.kind === 'commented' && (
-              <Paper variant="outlined" sx={{ p: 1.5, mt: 0.5, bgcolor: 'grey.50', whiteSpace: 'pre-wrap' }}>
-                {e.comment}
-              </Paper>
+              <Paper sx={{ p: 1.5, mt: 0.75, bgcolor: PANEL_BG, whiteSpace: 'pre-wrap' }}>{e.comment}</Paper>
             )}
           </Box>
         </Stack>

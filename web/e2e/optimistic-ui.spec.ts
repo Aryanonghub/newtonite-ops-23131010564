@@ -33,7 +33,7 @@ async function pageAs(browser: Browser, request: APIRequestContext, email: strin
   return context.newPage();
 }
 
-const statusChip = (page: Page) => page.getByTestId('status-chip');
+const statusChip = (page: Page) => page.getByTestId('item-status'); // the status on the item panel, not the list rows
 const successPopup = (page: Page) => page.locator('.MuiSnackbar-root');
 
 test('second approver: UI rolls back and shows "This item changed, reload" (real 409)', async ({ browser, request }) => {

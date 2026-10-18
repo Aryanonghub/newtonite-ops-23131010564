@@ -36,9 +36,9 @@ export function DashboardPage() {
 
   const firstName = me?.name.split(/[\s(]/)[0];
   const panels = [
-    { title: 'Assigned to me', items: data.assignedToMe, empty: 'Nothing assigned to you', hint: 'In progress or waiting on approval', accent: '#4f46e5' },
+    { title: 'Assigned to me', items: data.assignedToMe, empty: 'Nothing assigned to you', hint: 'In progress or waiting on approval', accent: '#1f5eff' },
     { title: 'Unassigned urgent', items: data.unassignedUrgent, empty: 'No unassigned urgent items', hint: 'Needs someone to claim it', accent: '#dc2626' },
-    { title: 'Awaiting my approval', items: data.awaitingMyApproval, empty: 'Nothing waiting for your approval', hint: 'Submitted by someone else', accent: '#6d28d9' },
+    { title: 'Awaiting my approval', items: data.awaitingMyApproval, empty: 'Nothing waiting for your approval', hint: 'Submitted by someone else', accent: '#c2410c' },
   ];
 
   return (

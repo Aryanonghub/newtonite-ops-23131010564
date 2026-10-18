@@ -3,7 +3,7 @@ import { useState } from 'react';
 
 // Newtonite's "N" mark (web/public/newtonite-logo.png, from newtonite.in) next to the product name.
 // If the image fails to load, only the name is shown.
-const LOGO_SRC = '/newtonite-logo.png';
+export const LOGO_SRC = '/newtonite-logo.png';
 
 export function Brand({ dark = false, size = 28 }: { dark?: boolean; size?: number }) {
   const [logoFailed, setLogoFailed] = useState(false);

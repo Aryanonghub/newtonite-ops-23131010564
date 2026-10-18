@@ -133,7 +133,7 @@ itemsRouter.get('/stats', async (req, res) => {
   let unassigned = 0;
   for (const row of byStatus.rows) {
     counts[row.status] = row.n;
-    if (row.status !== 'resolved' && row.status !== 'closed') assignedToMe += row.mine; // still needs work
+    assignedToMe += row.mine; // same set as the list's assignee=me filter, so tab badges match the tab
     unassigned += row.unassigned;
   }
   res.json({

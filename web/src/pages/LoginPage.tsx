@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router';
 import { api, setToken } from '../api';
 import { Brand } from '../brand';
 import { PersonAvatar } from '../components';
-import { SIDEBAR_BG, SIDEBAR_TEXT } from '../theme';
+import { RAIL_BG, RAIL_TEXT } from '../theme';
 
 // Seeded demo accounts (all use password123), one per role. Clicking one logs straight in.
 const DEMO = [
@@ -45,8 +45,8 @@ export function LoginPage() {
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       {/* Left: brand and what the system promises. Hidden on small screens. */}
       <Stack sx={{
-        display: { xs: 'none', md: 'flex' }, width: '44%', bgcolor: SIDEBAR_BG, color: SIDEBAR_TEXT, p: 6,
-        backgroundImage: 'radial-gradient(circle at 20% 0%, rgba(79,70,229,0.35), transparent 55%)',
+        display: { xs: 'none', md: 'flex' }, width: '44%', bgcolor: RAIL_BG, color: RAIL_TEXT, p: 6,
+        backgroundImage: 'radial-gradient(circle at 20% 0%, rgba(31,94,255,0.35), transparent 55%)',
       }}>
         <Brand dark size={34} />
         <Box sx={{ my: 'auto', maxWidth: 440 }}>
@@ -58,7 +58,7 @@ export function LoginPage() {
           <Stack spacing={2.5}>
             {PROMISES.map(([title, text]) => (
               <Stack key={title} direction="row" spacing={1.5}>
-                <Box sx={{ mt: '3px', width: 18, height: 18, flexShrink: 0, borderRadius: '50%', bgcolor: '#4f46e5',
+                <Box sx={{ mt: '3px', width: 18, height: 18, flexShrink: 0, borderRadius: '50%', bgcolor: '#1f5eff',
                   color: '#fff', fontSize: 11, display: 'grid', placeItems: 'center' }}>✓</Box>
                 <Box>
                   <Typography sx={{ color: '#fff', fontWeight: 600, fontSize: 15 }}>{title}</Typography>
@@ -87,7 +87,7 @@ export function LoginPage() {
                 sx={{
                   p: 1.5, display: 'flex', alignItems: 'center', gap: 1.25, textAlign: 'left', cursor: 'pointer',
                   font: 'inherit', bgcolor: 'background.paper', transition: 'border-color .15s, box-shadow .15s',
-                  '&:hover': { borderColor: 'primary.main', boxShadow: '0 0 0 3px rgba(79,70,229,0.12)' },
+                  '&:hover': { borderColor: 'primary.main', boxShadow: '0 0 0 3px rgba(31,94,255,0.12)' },
                 }}>
                 <PersonAvatar name={d.name} size={32} />
                 <Box sx={{ minWidth: 0 }}>
