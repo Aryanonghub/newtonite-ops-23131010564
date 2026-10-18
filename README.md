@@ -19,10 +19,10 @@ requests and cross-team access are all handled on the server and covered by test
 |---|---|---|
 | Two people act on the same item at once | Claim is one conditional `UPDATE ... WHERE assignee_id IS NULL`. One wins; the other gets 409 *"Alice has already claimed this item."* | `claim.test.ts` (2 and 10 parallel claims), `scripts/race-claim.sh` |
 | Someone acts from an out-of-date page | Every edit and move sends the `version` it saw. A mismatch is a 409 with the latest item and who changed what (*"Priya approved it since you loaded this item."*) | `optimistic-locking.test.ts`, `scripts/race-approve.sh` |
-| A request is sent twice | `POST /items` requires an `Idempotency-Key`. A retry replays the stored response; the same key with a different body gets 422 | `idempotency.test.ts` |
+| A request is sent twice | An `Idempotency-Key` (required on create; optional on claim, transition, comments). A retry replays the stored response; the same key with a different body gets 422 | `idempotency.test.ts` |
 | Someone tries to skip a workflow step | Allowed moves are a table on the server (422 otherwise). Only a Lead/Admin of the item's team can approve (403), and never the person who submitted it (four-eyes) | `workflow.test.ts` |
 | Background work fails or runs twice | Notifications go through a transactional outbox. The worker retries with backoff, gives up as `failed`, and never delivers twice | `outbox.test.ts` |
-| Someone outside the team probes an item | 404 on every read and write; lists and dashboard only show your teams; Viewers are read-only | `authorization.test.ts` |
+| Someone outside the team probes an item | 404 on every read and write; lists and dashboard only show your teams; Viewers are read-only. Only the assignee (or a Lead) moves an assigned item | `authorization.test.ts`, `workflow.test.ts` |
 | The UI shows a change before the server agrees | Optimistic update, rolled back on 409/403 with the server's reason; the success popup appears only after the server confirms | `web/e2e/optimistic-ui.spec.ts` (Playwright) |
 | History must match what happened | Item change, history event and outbox job commit in one transaction; the database rejects UPDATE/DELETE on history | `activity.test.ts` |
 
@@ -70,20 +70,42 @@ All passwords are **`password123`**. The login page has one-click buttons for th
 | `lena@ops.test`   | Lead, Support                            | Cannot see Payments items at all (404)           |
 | `tom@`, `carl@`, `cara@`, `omar@`, `pia@ops.test` | Support member, Compliance lead/member, Platform lead/member | |
 
-## Things to try
+## See it yourself
 
-Open two browser windows, one of them private, so you can be two people at once.
+Use the **live demo** (or `http://localhost:8088`). You need two or three people at once, so use separate
+browsers: e.g. Chrome, a Chrome incognito window and Safari (incognito windows share one login). All passwords are `password123`.
+For the terminal steps: `export API=https://newtonite-ops-opal.vercel.app/api` (or `http://localhost:8088/api`).
 
-1. **Claim race.** Log in as `mohan@ops.test` in one window and `sara@ops.test` in the other. Open the same
-   Open Payments item in both and click **Claim** in each, one right after the other. The second page rolls
-   back and says who claimed it.
-2. **Stale approval.** As Mohan, claim an item and click **Submit for approval**. Open it as `priya@ops.test`
-   and as `admin@ops.test`. Approve as Priya, then as Admin: the Admin's page rolls back and shows
-   *"Priya (Payments Lead) approved it since you loaded this item."* No false "Approved" popup appears.
-3. **Four-eyes.** As Priya, claim an item and submit it yourself. There is no Approve button, the page says
-   another Lead must approve it, and the API would answer 403.
-4. **Team walls.** As `lena@ops.test` (Support Lead), open a Payments item's URL: Not found. As
-   `vik@ops.test` (Viewer), items show no action buttons.
+| # | Situation | Try it | You'll see |
+|---|---|---|---|
+| 1 | **Two people claim one item** | As `mohan@ops.test` create a Payments item. Open the same `/items/<id>` as `sara@ops.test`. Click **Claim** in both. Or run `./scripts/race-claim.sh` | One "You claimed this item"; the other rolls back: *"Mohan has already claimed this item."* The script prints one `200`, one `409` |
+| 2 | **Editing a stale page** | Open one item as Mohan and as `priya@ops.test`; both click **Edit**. Priya saves, then Mohan saves | Mohan's save is refused: *"Priya edited the title since you loaded this item."* Nothing of his is saved |
+| 3 | **Double click / retry** | Send the same create twice with one key (below) | Both answers are `201` with the **same id**; the second has `Idempotent-Replayed: true`. One item exists |
+| 4 | **Skipping a workflow step** | Move an Open item straight to Closed (below) | `422` *"Cannot move from open to closed (claim the item to start work)"* |
+| 5 | **Approving your own work** | As Priya, claim an item and **Submit for approval** | No Approve button; *"another Lead of Payments must approve it."* `admin@ops.test` can approve it |
+| 6 | **Two approvers at once** | `./scripts/race-approve.sh` | One `200`, one `409`, both at the same instant and from a page 2 s out of date |
+| 7 | **Outside the team** | As `lena@ops.test` (Support Lead) open a Payments `/items/<id>` | *Not found* (404): she can't even learn it exists |
+| 8 | **Read-only role** | As `vik@ops.test` (Viewer) open any Payments item | No Claim, Edit or Approve buttons; the API answers `403` |
+| 9 | **Someone else's ticket** | Sara claims an item; Mohan opens it | No Submit button: *"Assigned to Sara. Only they or a Lead of Payments can move it."* He can still comment |
+| 10 | **Notifications that can't be lost** | `admin@ops.test` creates an item; Mohan claims it | The bell on Ada's rail shows *"Mohan claimed …"*, delivered through the outbox. Retries, backoff and "run twice → one notification" are shown by `npx vitest run tests/outbox.test.ts` |
+| 11 | **Live updates** | Keep an item open as Priya; claim or comment on it as someone else | Priya's page updates within about 2 s, without a reload |
+
+Commands for 3 and 4:
+
+```bash
+tok(){ curl -s -X POST $API/auth/login -H 'Content-Type: application/json' -d "{\"email\":\"$1\",\"password\":\"password123\"}" | sed 's/.*"token":"\([^"]*\)".*/\1/'; }
+
+# 3. the same create twice with one Idempotency-Key -> same id, second one replayed
+for i in 1 2; do curl -s -D - -X POST $API/items -H "Authorization: Bearer $(tok mohan@ops.test)" \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: demo-$(date +%Y%m%d%H%M)" \
+  -d '{"title":"Double click","type":"task","priority":"low","team_id":1}' | grep -iE '^HTTP|replayed|"id"'; done
+
+# 4. Open -> Closed is not an allowed move (use the id of any Open item)
+curl -s -X POST $API/items/<open-item-id>/transition -H "Authorization: Bearer $(tok priya@ops.test)" \
+  -H 'Content-Type: application/json' -d '{"to":"closed","version":1}'
+```
+
+To check that the tests really catch bugs, see "Proving the tests are real" below.
 
 ## Run the tests
 
