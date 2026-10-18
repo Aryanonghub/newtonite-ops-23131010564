@@ -69,6 +69,8 @@ export function ItemsPage() {
       return api<ItemPage>(`/items?${query}`);
     },
     getNextPageParam: (lastPage) => lastPage.nextCursor,
+    // Refresh every 15 s (like the stats row), so items created or claimed by others show up without a reload.
+    refetchInterval: 15_000,
   });
   const items = list.data?.pages.flatMap((p) => p.items) ?? [];
 
