@@ -5,7 +5,7 @@ import {
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
-import { ApiError, api } from '../api';
+import { ApiError, api, newIdempotencyKey } from '../api';
 import { useMe } from '../App';
 import { useLiveUpdates } from '../live';
 import { DetailGrid, DueDate, Person, PersonAvatar, PriorityChip, StatusChip } from '../components';
@@ -114,7 +114,7 @@ export function ItemPanel({ id, onClose }: { id: number; onClose: () => void }) 
   const role = roleIn(me, item.team_id);
   const submittedByMe = item.submitted_by === me.id;
   // One key per click: retries of the same click share it, a new click gets a new one.
-  const keyHeader = () => ({ 'Idempotency-Key': crypto.randomUUID() });
+  const keyHeader = () => ({ 'Idempotency-Key': newIdempotencyKey() });
   const claim = () => {
     const headers = keyHeader();
     change.mutate({
@@ -218,7 +218,7 @@ export function ItemPanel({ id, onClose }: { id: number; onClose: () => void }) 
                 onChange={(e) => setCommentText(e.target.value)} slotProps={{ input: { disableUnderline: true } }} />
               <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
                 <Button variant="contained" size="small" disabled={!commentText.trim() || comment.isPending}
-                  onClick={() => comment.mutate({ body: commentText, key: crypto.randomUUID() }, { onSuccess: () => setCommentText('') })}>
+                  onClick={() => comment.mutate({ body: commentText, key: newIdempotencyKey() }, { onSuccess: () => setCommentText('') })}>
                   Comment
                 </Button>
               </Stack>

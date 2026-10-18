@@ -36,3 +36,12 @@ export async function api<T>(
   if (!res.ok) throw new ApiError(res.status, body?.error ?? `Request failed (${res.status})`, body);
   return body as T;
 }
+
+// A random Idempotency-Key. crypto.randomUUID() exists only on https/localhost and in newer browsers
+// (e.g. not on a phone opening the laptop over http://192.168..., or iOS before 15.4), so fall back to
+// getRandomValues(), which works everywhere.
+export function newIdempotencyKey(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}

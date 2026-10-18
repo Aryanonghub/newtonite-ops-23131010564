@@ -11,7 +11,7 @@ import {
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { api } from '../api';
+import { api, newIdempotencyKey } from '../api';
 import { useMe } from '../App';
 import { Breadcrumb, ItemsTable, PageHeader } from '../components';
 import { STATUS_COLORS } from '../theme';
@@ -246,7 +246,7 @@ function CreateItemDialog({ onClose }: { onClose: () => void }) {
   });
   // One key per dialog. If "Create" is clicked twice or the request is retried after a
   // network error, the server sees the same key and creates only one item.
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey] = useState(newIdempotencyKey);
 
   const create = useMutation({
     mutationFn: () => api<Item>('/items', {
