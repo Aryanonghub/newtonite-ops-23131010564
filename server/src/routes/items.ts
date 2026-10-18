@@ -11,7 +11,7 @@ import {
 } from '../items';
 import { enqueueJob } from '../outbox';
 import { authorize, readableTeamIds } from '../permissions';
-import { checkTransition } from '../workflow';
+import { STATUSES, checkTransition } from '../workflow';
 
 export const itemsRouter = Router();
 itemsRouter.use(requireAuth);
@@ -103,6 +103,47 @@ itemsRouter.get('/', async (req, res) => {
   const hasMore = rows.length > f.limit;
   const items = rows.slice(0, f.limit);
   res.json({ items, nextCursor: hasMore ? encodeCursor(items[items.length - 1].id) : null });
+});
+
+// Counts for the stats row and the tab badges on the items page. Only the user's own teams, like every list.
+// Registered before '/:id' so "stats" is not read as an item id.
+itemsRouter.get('/stats', async (req, res) => {
+  const user = currentUser(req);
+  const teams = readableTeamIds(user);
+  const [byStatus, created] = await Promise.all([
+    pool.query(
+      `SELECT status, count(*)::int AS n,
+              count(*) FILTER (WHERE assignee_id = $2)::int AS mine,
+              count(*) FILTER (WHERE assignee_id IS NULL)::int AS unassigned
+         FROM work_items WHERE team_id = ANY($1) GROUP BY status`,
+      [teams, user.id],
+    ),
+    // Only the last two days are read, so this uses the (team_id, created_at) index.
+    pool.query(
+      `SELECT count(*) FILTER (WHERE created_at >= date_trunc('day', now()))::int AS today,
+              count(*) FILTER (WHERE created_at < date_trunc('day', now()))::int AS yesterday
+         FROM work_items
+        WHERE team_id = ANY($1) AND created_at >= date_trunc('day', now()) - interval '1 day'`,
+      [teams],
+    ),
+  ]);
+
+  const counts: Record<string, number> = Object.fromEntries(STATUSES.map((s) => [s, 0]));
+  let assignedToMe = 0;
+  let unassigned = 0;
+  for (const row of byStatus.rows) {
+    counts[row.status] = row.n;
+    if (row.status !== 'resolved' && row.status !== 'closed') assignedToMe += row.mine; // still needs work
+    unassigned += row.unassigned;
+  }
+  res.json({
+    total: Object.values(counts).reduce((a, b) => a + b, 0),
+    byStatus: counts,
+    assignedToMe,
+    unassigned,
+    newToday: created.rows[0].today,
+    newYesterday: created.rows[0].yesterday,
+  });
 });
 
 itemsRouter.get('/:id', async (req, res) => {

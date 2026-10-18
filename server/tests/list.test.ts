@@ -120,4 +120,21 @@ describe('GET /items (filters + cursor pagination)', () => {
     await api().get('/items?limit=1000').set(auth(f.alice.token)).expect(400);
     await api().get('/items?cursor=%%%').set(auth(f.alice.token)).expect(400);
   });
+
+  it('GET /items/stats counts only the user\'s own teams', async () => {
+    const a = await createItem(f.alice, f.payments);
+    await createItem(f.alice, f.payments);
+    await createItem(f.sam, f.support); // another team: must not be counted for Alice
+    await api().post(`/items/${a.id}/claim`).set(auth(f.alice.token)).expect(200);
+
+    const res = await api().get('/items/stats').set(auth(f.alice.token)).expect(200);
+
+    expect(res.body).toMatchObject({
+      total: 2,
+      byStatus: { open: 1, in_progress: 1, awaiting_approval: 0, resolved: 0, closed: 0 },
+      assignedToMe: 1,
+      unassigned: 1,
+      newToday: 2,
+    });
+  });
 });
