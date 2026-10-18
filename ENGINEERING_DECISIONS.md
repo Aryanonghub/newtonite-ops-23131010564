@@ -8,7 +8,7 @@ Each decision: what I chose, why, what I rejected, and what it costs.
 - ★ An item gets an owner **only by being claimed**, which also moves it Open → In Progress. No reassign yet.
 - Flow: Open → In Progress → Awaiting Approval → Resolved → Closed, plus Send back and Reopen. Closed is final.
 - ★ Only a **Lead/Admin of the item's team** approves, and **never the person who submitted it** (four-eyes, Admins included).
-- Members can move, edit and comment on any item in their team. Viewers are read-only. Roles are per team.
+- ★ Once an item is claimed, **only its assignee (or a Lead/Admin) can move it**, so history shows who did the work. Any Member can still claim Open items, edit and comment. Viewers are read-only. Roles are per team.
 - `PATCH` edits only title, description, priority and due date. Status and owner change only via `/claim` and `/transition`.
 
 ## 1. History can never disagree with the item
@@ -27,7 +27,7 @@ Each decision: what I chose, why, what I rejected, and what it costs.
 
 ## 3. Authorization: per-team roles, one function
 
-- **Chose:** `memberships (user, team, role)`, with every check going through `can(user, action, item)` in `permissions.ts`. Roles are ranked viewer < member < lead < admin. Four-eyes lives there too. Lists always filter `team_id = ANY(myTeams)`.
+- **Chose:** `memberships (user, team, role)`, with every check going through `can(user, action, item)` in `permissions.ts`. Roles are ranked viewer < member < lead < admin. Item-level rules live there too: four-eyes, and *only the assignee or a Lead/Admin moves an assigned item*. Lists always filter `team_id = ANY(myTeams)`.
 - **Outside the team → 404** (it doesn't reveal the item exists). **Role too low → 403** with a reason the UI shows.
 - Roles are reloaded from the DB on each request (the JWT holds only the user id), so removing someone takes effect immediately.
 - **Rejected:** global roles (too coarse); a policy engine (overkill for 4 roles).
@@ -73,7 +73,7 @@ Each decision: what I chose, why, what I rejected, and what it costs.
 
 ## Testing
 
-**76 server tests** against real Postgres (they refuse any DB not ending in `_test`) and **4 Playwright tests**: optimistic update, rollback on 409 and on 403, live update. CI runs type checks and the server tests on every push. The race scripts (`scripts/race-*.sh`) show the 200/409 split by hand.
+**79 server tests** against real Postgres (they refuse any DB not ending in `_test`) and **4 Playwright tests**: optimistic update, rollback on 409 and on 403, live update. CI runs type checks and the server tests on every push. The race scripts (`scripts/race-*.sh`) show the 200/409 split by hand.
 
 ## Known limitations
 

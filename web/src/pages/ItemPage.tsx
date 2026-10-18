@@ -8,10 +8,10 @@ import { useState, type ReactNode } from 'react';
 import { ApiError, api, newIdempotencyKey } from '../api';
 import { useMe } from '../App';
 import { useLiveUpdates } from '../live';
-import { DetailGrid, DueDate, Person, PersonAvatar, PriorityChip, StatusChip } from '../components';
+import { DetailGrid, DueDate, Person, PersonAvatar, PriorityChip, StatusChip, shortName } from '../components';
 import { PANEL_BG } from '../theme';
 import { PRIORITIES, STATUSES, label, timeAgo, type ActivityEvent, type Item } from '../types';
-import { ACTIONS, atLeast, canApprove, nextStep, roleIn } from '../workflow';
+import { ACTIONS, atLeast, canApprove, canMove, nextStep, roleIn } from '../workflow';
 
 // A write = the request to send, what the item should look like if it succeeds,
 // and the message to show when the server confirms it.
@@ -147,9 +147,10 @@ export function ItemPanel({ id, onClose }: { id: number; onClose: () => void }) 
     );
   };
 
-  // 'resolved' is the Approve button, the only one that also needs the four-eyes check.
+  // Same rules as the server: Approve ('resolved') needs four-eyes; every other move needs ownership.
+  const movable = canMove(role, item.assignee_id, me.id);
   const actions = ACTIONS[item.status]
-    .filter((a) => atLeast(role, a.minRole) && (a.to !== 'resolved' || canApprove(role, submittedByMe)));
+    .filter((a) => atLeast(role, a.minRole) && (a.to === 'resolved' ? canApprove(role, submittedByMe) : movable));
   const canEdit = atLeast(role, 'member');
 
   return (
@@ -247,7 +248,9 @@ export function ItemPanel({ id, onClose }: { id: number; onClose: () => void }) 
         <Box sx={{ position: { md: 'sticky' }, bottom: 0, bgcolor: 'background.paper', pt: 2 }}>
           <Box sx={{ bgcolor: PANEL_BG, borderRadius: 2, p: 1.5, mb: 1.5 }}>
             <Typography variant="body2">
-              <b>Next step:</b> {nextStep(item.status, role, item.team_name, submittedByMe)}
+              <b>Next step:</b> {movable || !atLeast(role, 'member') || !item.assignee_name
+                ? nextStep(item.status, role, item.team_name, submittedByMe)
+                : `Assigned to ${shortName(item.assignee_name)}. Only they or a Lead of ${item.team_name} can move it; you can still comment.`}
             </Typography>
           </Box>
           <Stack spacing={1}>

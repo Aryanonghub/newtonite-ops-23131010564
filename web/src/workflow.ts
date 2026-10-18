@@ -27,6 +27,12 @@ export const ACTIONS: Record<Status, { to: Status; label: string; minRole: Role;
   closed: [],
 };
 
+// Ownership: once an item is assigned, only the assignee or a Lead/Admin can move it.
+export function canMove(role: Role | null, assigneeId: number | null, meId: number): boolean {
+  if (!atLeast(role, 'member')) return false;
+  return atLeast(role, 'lead') || assigneeId === null || assigneeId === meId;
+}
+
 // Four-eyes: whoever submitted an item for approval cannot approve it.
 export function canApprove(role: Role | null, submittedByMe: boolean): boolean {
   return atLeast(role, 'lead') && !submittedByMe;

@@ -25,18 +25,29 @@ const MIN_ROLE: Record<Action, Role> = {
   approve: 'lead', // Awaiting Approval -> Resolved
 };
 
+// What can() needs to know about an item. submitted_by matters only for 'approve',
+// assignee_id only for 'transition'.
+type PermissionItem = { team_id: number; submitted_by?: number | null; assignee_id?: number | null };
+
 // THE permission check. Every endpoint uses it. It only looks at the user's role
 // in the item's own team, so being a Lead in Payments gives no rights in Support.
-// What can() needs to know about an item. submitted_by matters only for 'approve'.
-type PermissionItem = { team_id: number; submitted_by?: number | null };
-
-// The four-eyes rule also lives here: whoever submitted an item for approval cannot approve it,
-// whatever their role (an Admin included).
+// Two item-level rules also live here, so this stays the one place to look:
+// - Four-eyes: whoever submitted an item for approval cannot approve it, whatever their role.
+// - Ownership: once an item has an assignee, only they (or a Lead/Admin) can move it through the
+//   workflow, so the history shows who actually did the work. Open items have no assignee yet;
+//   for those the workflow's own answer applies ("claim the item to start work").
 export function can(user: AuthUser, action: Action, item: PermissionItem): boolean {
   const role = user.roles[item.team_id];
   if (!role) return false;
   if (action === 'approve' && item.submitted_by === user.id) return false;
+  if (action === 'transition' && isSomeoneElsesItem(user, role, item)) return false;
   return RANK[role] >= RANK[MIN_ROLE[action]];
+}
+
+// A Member trying to move an item that is assigned to someone else. (Viewers can't move anything
+// anyway, and Leads/Admins may move any item in their team, e.g. to cover for someone away.)
+function isSomeoneElsesItem(user: AuthUser, role: Role, item: PermissionItem): boolean {
+  return role === 'member' && item.assignee_id != null && item.assignee_id !== user.id;
 }
 
 // Throwing version for route handlers.
@@ -47,6 +58,10 @@ export function authorize(user: AuthUser, action: Action, item: PermissionItem):
   if (!can(user, action, item)) {
     if (action === 'approve' && item.submitted_by === user.id) {
       throw new HttpError(403, 'You submitted this item for approval, so someone else must approve it');
+    }
+    const role = user.roles[item.team_id];
+    if (action === 'transition' && isSomeoneElsesItem(user, role, item)) {
+      throw new HttpError(403, 'Only the assignee or a Lead can move this item');
     }
     throw new HttpError(403, `Your role in this team (${user.roles[item.team_id]}) cannot ${action} items`);
   }

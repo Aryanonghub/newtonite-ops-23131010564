@@ -142,6 +142,36 @@ describe('workflow', () => {
     await transition(f.ada, item.id, 'resolved', 5).expect(200);
   });
 
+  it('ownership: a Member cannot move an item assigned to someone else', async () => {
+    const item = await createItem(f.bob, f.payments);
+    await api().post(`/items/${item.id}/claim`).set(auth(f.alice.token)).expect(200); // Alice owns it
+
+    const res = await transition(f.bob, item.id, 'awaiting_approval', 2);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('Only the assignee or a Lead can move this item');
+    expect(await dbItem(item.id)).toMatchObject({ status: 'in_progress', version: 2 });
+    expect((await dbEvents(item.id)).filter((e) => e.kind === 'status_changed')).toHaveLength(1); // only the claim
+  });
+
+  it('ownership: the assignee and a Lead can move it; other Members can still comment', async () => {
+    const item = await createItem(f.bob, f.payments);
+    await api().post(`/items/${item.id}/claim`).set(auth(f.alice.token)).expect(200);
+
+    await transition(f.alice, item.id, 'awaiting_approval', 2).expect(200); // the assignee
+    await transition(f.lee, item.id, 'in_progress', 3).expect(200);         // a Lead (send back)
+    await api().post(`/items/${item.id}/comments`).set(auth(f.bob.token)).send({ body: 'FYI' }).expect(201);
+  });
+
+  it('ownership: a Member on an Open item still gets the workflow hint, not a 403', async () => {
+    const item = await createItem(f.bob, f.payments);
+
+    const res = await transition(f.alice, item.id, 'awaiting_approval', 1);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/claim the item/);
+  });
+
   it('a Viewer cannot move items', async () => {
     const item = await createItem(f.alice, f.payments);
     await api().post(`/items/${item.id}/claim`).set(auth(f.alice.token)).expect(200);

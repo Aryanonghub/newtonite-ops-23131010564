@@ -93,7 +93,7 @@ The tests run against a separate `ops_test` database in the same Postgres contai
 docker compose up -d db        # Postgres must be running
 cd server
 npm ci
-npm test                       # 76 tests, about 15 seconds
+npm test                       # 79 tests, about 15 seconds
 ```
 
 The tests never touch the demo data. They refuse to run against any database whose name doesn't end in `_test`.
@@ -103,7 +103,7 @@ The tests never touch the demo data. They refuse to run against any database who
 | `claim.test.ts` | 2 and 10 parallel claims → exactly one 200, the rest 409 naming the winner; DB and history agree |
 | `optimistic-locking.test.ts` | PATCH/transition with an old `version` → 409 with the latest item and who changed what; data and history unchanged |
 | `idempotency.test.ts` | Same `Idempotency-Key` twice → one item, byte-identical response; different body → 422; 5 parallel same-key requests → one item. Retried claim/transition replays its 200 instead of a 409; a double-submitted comment is posted once; a failed write stores nothing; keys are per user |
-| `workflow.test.ts` | Open → Closed rejected (422); Member approval rejected (403); Lead/Admin approval allowed; the submitter can't approve their own item, even as Lead/Admin (four-eyes); a second approver gets 409 (not a workflow error); full path recorded in order |
+| `workflow.test.ts` | Open → Closed rejected (422); Member approval rejected (403); Lead/Admin approval allowed; the submitter can't approve their own item, even as Lead/Admin (four-eyes); a Member can't move an item assigned to someone else (Leads can; anyone can still comment); a second approver gets 409 (not a workflow error); full path recorded in order |
 | `authorization.test.ts` | User from another team → 404 on every read and write; lists/dashboard scoped to own teams; Viewer read-only |
 | `outbox.test.ts` | Job written in the same transaction; job processed twice → one notification; failing job retries with backoff then `failed`; two workers never run the same job |
 | `list.test.ts` | Cursor pagination never skips or repeats rows (even with identical timestamps); filters; full-text search (description words, any word order, word forms, `"phrase"`, `-exclude`), partial title match, search by `#id`, scoped to own teams |
