@@ -2,251 +2,91 @@
 
 [![CI](https://github.com/Aryanonghub/newtonite-ops-23131010564/actions/workflows/ci.yml/badge.svg)](https://github.com/Aryanonghub/newtonite-ops-23131010564/actions/workflows/ci.yml)
 
-**Live demo: https://newtonite-ops-opal.vercel.app** (pick a demo person on the sign-in page; all passwords are `password123`).
-The demo data is shared, so other visitors may be changing items at the same time, which is a good way to see the conflict handling.
+Teams (Payments, Support, Compliance, Platform) create, claim, approve and resolve work items, and the system
+**stays correct when many people act on the same item at once**. Every rule is enforced on the server, most of
+them by Postgres itself.
 
-An internal web app where teams such as Payments, Support and Compliance create, claim, track and resolve
-work items. Items move through a server-enforced workflow (Open → In Progress → Awaiting Approval →
-Resolved → Closed), and only a Lead of the item's team can approve. Every change is written to an
-append-only activity history in the same database transaction as the change itself.
-
-The focus is correct behaviour under pressure. Two people claiming the same item, stale edits, retried
-requests and cross-team access are all handled on the server and covered by tests against a real Postgres.
-
-## What happens under pressure
-
-| Situation | What the system does | Proven by |
-|---|---|---|
-| Two people act on the same item at once | Claim is one conditional `UPDATE ... WHERE assignee_id IS NULL`. One wins; the other gets 409 *"Alice has already claimed this item."* | `claim.test.ts` (2 and 10 parallel claims), `scripts/race-claim.sh` |
-| Someone acts from an out-of-date page | Every edit and move sends the `version` it saw. A mismatch is a 409 with the latest item and who changed what (*"Priya approved it since you loaded this item."*) | `optimistic-locking.test.ts`, `scripts/race-approve.sh` |
-| A request is sent twice | An `Idempotency-Key` (required on create; optional on claim, transition, comments). A retry replays the stored response; the same key with a different body gets 422 | `idempotency.test.ts` |
-| Someone tries to skip a workflow step | Allowed moves are a table on the server (422 otherwise). Only a Lead/Admin of the item's team can approve (403), and never the person who submitted it (four-eyes) | `workflow.test.ts` |
-| Background work fails or runs twice | Notifications go through a transactional outbox. The worker retries with backoff, gives up as `failed`, and never delivers twice | `outbox.test.ts` |
-| Someone outside the team probes an item | 404 on every read and write; lists and dashboard only show your teams; Viewers are read-only. Only the assignee (or a Lead) moves an assigned item | `authorization.test.ts`, `workflow.test.ts` |
-| The UI shows a change before the server agrees | Optimistic update, rolled back on 409/403 with the server's reason; the success popup appears only after the server confirms | `web/e2e/optimistic-ui.spec.ts` (Playwright) |
-| History must match what happened | Item change, history event and outbox job commit in one transaction; the database rejects UPDATE/DELETE on history | `activity.test.ts` |
-
-The reasoning and trade-offs behind each of these are in [ENGINEERING_DECISIONS.md](ENGINEERING_DECISIONS.md).
-
-## Prerequisites
-
-- Docker Desktop (with Docker Compose v2)
-- Node.js 22+ and npm, **only** for running the tests or the frontend dev server outside Docker
-- Free ports: `8088` (web), `3000` (API), `5432` (Postgres)
+**Live demo: https://newtonite-ops-opal.vercel.app**. Pick a demo person on the sign-in page.
 
 ## Run it
 
 ```bash
-git clone https://github.com/Aryanonghub/newtonite-ops-23131010564.git
-cd newtonite-ops-23131010564
-docker compose up --build
+git clone https://github.com/Aryanonghub/newtonite-ops-23131010564.git && cd newtonite-ops-23131010564
+docker compose up --build        # needs Docker; free ports 8088, 3000, 5432
 ```
 
-Open **http://localhost:8088**. The first start takes a minute or two to build. On boot the API runs migrations and
-seeds 4 teams, 11 users and 20,000 work items (with matching history). Seeding is skipped if data already exists.
+Open **http://localhost:8088**. Migrations and a seed (4 teams, 11 users, 20,000 items) run on first boot.
+Start over with `docker compose down -v && docker compose up --build`.
 
-| Service  | URL / port                 | What it is                                     |
-|----------|----------------------------|------------------------------------------------|
-| `web`    | http://localhost:8088      | React app (nginx), forwards `/api/*` to the API |
-| `api`    | http://localhost:3000      | Express + TypeScript REST API                   |
-| `worker` | (no port)                  | Outbox worker that delivers notifications       |
-| `db`     | localhost:5432             | PostgreSQL 17 (user/password/db: `ops`)         |
+**Logins** (password `password123`; one-click on the sign-in page):
+`admin@` Admin of all teams · `priya@` Payments Lead · `mohan@` Payments Member · `sara@` Member of Payments + Support ·
+`vik@` Viewer (read-only) · `lena@` Support Lead (can't see Payments). All `@ops.test`.
 
-Reset everything (wipes the database and re-seeds): `docker compose down -v && docker compose up --build`
+## The hard parts, and how to check them
 
-Optional: copy `.env.example` to `.env` and set `JWT_SECRET`. Without it, a dev-only default is used.
+Use separate browsers for two people (e.g. Chrome and Safari; incognito windows share one login).
 
-## Demo logins
-
-All passwords are **`password123`**. The login page has one-click buttons for these.
-
-| Email             | Role(s)                                  | Good for trying                                  |
-|-------------------|------------------------------------------|--------------------------------------------------|
-| `admin@ops.test`  | Admin in all 4 teams                     | Sees everything, can approve anywhere            |
-| `priya@ops.test`  | Lead, Payments                           | Approving items ("Awaiting my approval")         |
-| `mohan@ops.test`  | Member, Payments                         | Create, claim, submit; **cannot** approve        |
-| `sara@ops.test`   | Member, Payments **and** Support         | Multi-team user                                  |
-| `vik@ops.test`    | Viewer, Payments and Compliance          | Read-only: no action buttons, API returns 403    |
-| `lena@ops.test`   | Lead, Support                            | Cannot see Payments items at all (404)           |
-| `tom@`, `carl@`, `cara@`, `omar@`, `pia@ops.test` | Support member, Compliance lead/member, Platform lead/member | |
-
-## See it yourself
-
-Use the **live demo** (or `http://localhost:8088`). You need two or three people at once, so use separate
-browsers: e.g. Chrome, a Chrome incognito window and Safari (incognito windows share one login). All passwords are `password123`.
-For the terminal steps: `export API=https://newtonite-ops-opal.vercel.app/api` (or `http://localhost:8088/api`).
-
-| # | Situation | Try it | You'll see |
+| Situation | How it's handled | Try it | Test |
 |---|---|---|---|
-| 1 | **Two people claim one item** | As `mohan@ops.test` create a Payments item. Open the same `/items/<id>` as `sara@ops.test`. Click **Claim** in both. Or run `./scripts/race-claim.sh` | One "You claimed this item"; the other rolls back: *"Mohan has already claimed this item."* The script prints one `200`, one `409` |
-| 2 | **Editing a stale page** | Open one item as Mohan and as `priya@ops.test`; both click **Edit**. Priya saves, then Mohan saves | Mohan's save is refused: *"Priya edited the title since you loaded this item."* Nothing of his is saved |
-| 3 | **Double click / retry** | Send the same create twice with one key (below) | Both answers are `201` with the **same id**; the second has `Idempotent-Replayed: true`. One item exists |
-| 4 | **Skipping a workflow step** | Move an Open item straight to Closed (below) | `422` *"Cannot move from open to closed (claim the item to start work)"* |
-| 5 | **Approving your own work** | As Priya, claim an item and **Submit for approval** | No Approve button; *"another Lead of Payments must approve it."* `admin@ops.test` can approve it |
-| 6 | **Two approvers at once** | `./scripts/race-approve.sh` | One `200`, one `409`, both at the same instant and from a page 2 s out of date |
-| 7 | **Outside the team** | As `lena@ops.test` (Support Lead) open a Payments `/items/<id>` | *Not found* (404): she can't even learn it exists |
-| 8 | **Read-only role** | As `vik@ops.test` (Viewer) open any Payments item | No Claim, Edit or Approve buttons; the API answers `403` |
-| 9 | **Someone else's ticket** | Sara claims an item; Mohan opens it | No Submit button: *"Assigned to Sara. Only they or a Lead of Payments can move it."* He can still comment |
-| 10 | **Notifications that can't be lost** | `admin@ops.test` creates an item; Mohan claims it | The bell on Ada's rail shows *"Mohan claimed …"*, delivered through the outbox. Retries, backoff and "run twice → one notification" are shown by `npx vitest run tests/outbox.test.ts` |
-| 11 | **Live updates** | Keep an item open as Priya; claim or comment on it as someone else | Priya's page updates within about 2 s, without a reload |
+| **Two people claim one item** | `UPDATE … WHERE id = $1 AND assignee_id IS NULL`. 0 rows → **409** *"Mohan has already claimed this item."* | Mohan and Sara open the same item and both click **Claim**, or run `./scripts/race-claim.sh` → one `200`, one `409` | `claim.test.ts` |
+| **Acting on a stale page** | Every write sends the `version` it saw: `WHERE version = $2`. A mismatch → **409** with the latest item and *who changed what* | Mohan and Priya both **Edit** one item; Priya saves first, then Mohan → refused | `optimistic-locking.test.ts` |
+| **Double click / retry** | `Idempotency-Key` stored with the response **in the same transaction**; a repeat replays the response | Send one create twice with the same key → same id, `Idempotent-Replayed: true` | `idempotency.test.ts` |
+| **Skipping workflow steps** | Allowed-moves map on the server (**422**). Only a Lead/Admin **of that team** approves (**403**), never the person who submitted it (four-eyes) | Priya submits her own item → no Approve button; `./scripts/race-approve.sh` → one `200`, one `409` | `workflow.test.ts` |
+| **Access by team and role** | One function, `can()`, behind every endpoint. Outside the team → **404**; role too low → **403**; only the assignee or a Lead moves an assigned item | Lena opens a Payments item → *Not found*; Vik sees no buttons; Mohan can't submit Sara's item | `authorization.test.ts` |
+| **History matches the item** | Change + history row + outbox job in **one transaction**; a DB trigger makes history append-only | Every change appears in the item's Activity | `activity.test.ts` |
+| **Background work** | Transactional outbox; worker uses `SKIP LOCKED`, retries with backoff, gives up after 5; idempotent handler | Mohan claims Ada's item → Ada's bell shows it | `outbox.test.ts` |
+| **UI ahead of the server** | Optimistic update, **rolled back** on 409/403 with the server's reason; success shown only once confirmed. Live updates refresh an open item within ~2 s | Lose a claim race → the page rolls back | Playwright `web/e2e/` |
 
-Commands for 3 and 4:
+The "same key twice" check from the terminal:
 
 ```bash
-tok(){ curl -s -X POST $API/auth/login -H 'Content-Type: application/json' -d "{\"email\":\"$1\",\"password\":\"password123\"}" | sed 's/.*"token":"\([^"]*\)".*/\1/'; }
-
-# 3. the same create twice with one Idempotency-Key -> same id, second one replayed
-for i in 1 2; do curl -s -D - -X POST $API/items -H "Authorization: Bearer $(tok mohan@ops.test)" \
-  -H 'Content-Type: application/json' -H "Idempotency-Key: demo-$(date +%Y%m%d%H%M)" \
-  -d '{"title":"Double click","type":"task","priority":"low","team_id":1}' | grep -iE '^HTTP|replayed|"id"'; done
-
-# 4. Open -> Closed is not an allowed move (use the id of any Open item)
-curl -s -X POST $API/items/<open-item-id>/transition -H "Authorization: Bearer $(tok priya@ops.test)" \
-  -H 'Content-Type: application/json' -d '{"to":"closed","version":1}'
+API=https://newtonite-ops-opal.vercel.app/api
+T=$(curl -s -X POST $API/auth/login -H 'Content-Type: application/json' -d '{"email":"mohan@ops.test","password":"password123"}' | sed 's/.*"token":"\([^"]*\)".*/\1/')
+K=demo-$(date +%s)                                   # one key, sent twice
+for i in 1 2; do curl -s -D - -X POST $API/items -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $K" -d '{"title":"Double click","type":"task","priority":"low","team_id":1}' | grep -iE '^HTTP|replayed|"id"'; done
 ```
 
-To check that the tests really catch bugs, see "Proving the tests are real" below.
-
-## Run the tests
-
-The tests run against a separate `ops_test` database in the same Postgres container (created on first start).
+## Tests
 
 ```bash
-docker compose up -d db        # Postgres must be running
-cd server
-npm ci
-npm test                       # 79 tests, about 15 seconds
+docker compose up -d db && (cd server && npm ci && npm test)    # 79 tests against a real Postgres (~15 s)
+(cd web && npm ci && npx playwright install chromium && npm run test:e2e)   # 4 browser tests; needs the app running
 ```
 
-The tests never touch the demo data. They refuse to run against any database whose name doesn't end in `_test`.
-
-| Test file | Proves |
-|---|---|
-| `claim.test.ts` | 2 and 10 parallel claims → exactly one 200, the rest 409 naming the winner; DB and history agree |
-| `optimistic-locking.test.ts` | PATCH/transition with an old `version` → 409 with the latest item and who changed what; data and history unchanged |
-| `idempotency.test.ts` | Same `Idempotency-Key` twice → one item, byte-identical response; different body → 422; 5 parallel same-key requests → one item. Retried claim/transition replays its 200 instead of a 409; a double-submitted comment is posted once; a failed write stores nothing; keys are per user |
-| `workflow.test.ts` | Open → Closed rejected (422); Member approval rejected (403); Lead/Admin approval allowed; the submitter can't approve their own item, even as Lead/Admin (four-eyes); a Member can't move an item assigned to someone else (Leads can; anyone can still comment); a second approver gets 409 (not a workflow error); full path recorded in order |
-| `authorization.test.ts` | User from another team → 404 on every read and write; lists/dashboard scoped to own teams; Viewer read-only |
-| `outbox.test.ts` | Job written in the same transaction; job processed twice → one notification; failing job retries with backoff then `failed`; two workers never run the same job |
-| `list.test.ts` | Cursor pagination never skips or repeats rows (even with identical timestamps); filters; full-text search (description words, any word order, word forms, `"phrase"`, `-exclude`), partial title match, search by ID (`20013`, `#20013` or `PAY-20013`), scoped to own teams |
-| `activity.test.ts` | History is append-only (DB rejects UPDATE/DELETE); a rejected write leaves no history |
-| `auth.test.ts` | Login works; wrong password and unknown email look the same; after 5 failures → 429 with `Retry-After` (per email, case-insensitive, reset by a success) |
-| `live.test.ts` | The live stream sends `change` when someone claims or comments, nothing otherwise, ends after its time limit, and is 404 outside the team |
-| `logging.test.ts` | Every response has an `X-Request-Id` (a caller's well-formed id is kept); a 500 hides the error but returns the request id |
-
-### Browser tests (optimistic UI and live updates)
-
-Four Playwright tests drive a real browser against the running app:
-
-```bash
-docker compose up -d           # the full app must be running (http://localhost:8088)
-cd web
-npm ci
-npx playwright install chromium   # one-time browser download
-npm run test:e2e               # 4 tests, about 10 seconds
-```
-
-| Test | Proves |
-|---|---|
-| second approver | Two separate logins approve the same item. The second one's page **rolls back** and shows "This item changed, reload" naming who approved it, with no false success message; Reload shows the real status |
-| 403 | When the server refuses (403), the UI rolls back and shows the server's exact reason |
-| optimistic claim | With the server reply delayed by 1.5 s, the UI already shows "in progress" before the server answers |
-| live update | Someone else claims the item; the open page shows it within seconds, without a reload |
-
-Removing the rollback line in `web/src/pages/ItemPage.tsx` (`onError`) makes the first two fail.
-
-**Proving the tests are real:** remove `AND assignee_id IS NULL` from the claim `UPDATE` in
-`server/src/routes/items.ts` and run `npx vitest run tests/claim.test.ts`. All 3 claim tests fail
-(`expected [200, 200] to deeply equal [200, 409]`). Restore it with `git checkout -- src/routes/items.ts`.
-
-**See the race yourself** (with the app running):
-- `./scripts/race-claim.sh`: two users claim the same item at the same instant → one `200`, one `409`.
-- `./scripts/race-approve.sh`: a Lead and an Admin approve the same item, at the same instant and then
-  2 seconds apart from an out-of-date page → one `200`, one `409` each time.
+Server tests use a separate `*_test` database and never touch the demo data. CI runs them on every push.
+**Proof they catch bugs:** delete `AND assignee_id IS NULL` from the claim in `server/src/routes/items.ts`, and
+`npx vitest run tests/claim.test.ts` fails with `expected [200, 200] to deeply equal [200, 409]`.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  B["Browser<br/>React + TanStack Query"] -- "/api/* (JWT)" --> N["nginx<br/>static files + proxy"]
-  N --> A["API<br/>Express + TypeScript"]
-  A -- "one transaction per write:<br/>item + activity_event + outbox_job" --> P[("PostgreSQL")]
-  W["Worker<br/>polls outbox_jobs<br/>FOR UPDATE SKIP LOCKED"] -- "retries with backoff" --> P
-  W -. "writes notifications" .-> P
-  B -. "live stream per open item (+ polling fallback)" .-> N
+  B["Browser<br/>React + TanStack Query"] -- "/api (JWT)" --> N["nginx"] --> A["API<br/>Express + TypeScript"]
+  A -- "one transaction per write:<br/>item + history + outbox job" --> P[("PostgreSQL")]
+  W["Worker<br/>SKIP LOCKED, backoff"] --> P
 ```
 
-Every write follows the same order inside **one** database transaction:
-claim idempotency key → load item → check permission → check workflow rule → conditional `UPDATE`
-(version / assignee check) → insert activity event → insert outbox job → save idempotent response → `COMMIT`.
-If any step fails, everything rolls back, so the history can never disagree with the item.
+Every write, in one transaction: idempotency key → load item → `can()` → workflow rule → conditional `UPDATE`
+→ history row → outbox job → `COMMIT`. Any failure rolls back all of it.
 
-### Code map
-
-```
-server/
-  migrations/            001 schema + indexes, 002 invariants, 003 notifications, 004 full-text search,
-                         005 four-eyes, 006 login rate limiting (plain SQL)
-  src/permissions.ts     can(user, action, item): the single permission check
-  src/workflow.ts        allowed-transitions map + Lead-only approval
-  src/routes/items.ts    list, detail, create, PATCH, claim, transition, comments, activity
-  src/idempotency.ts     Idempotency-Key handling (create, claim, transition, comments)
-  src/logger.ts          one JSON log line per request, with a request id (X-Request-Id)
-  src/worker.ts          outbox worker
-  src/scripts/explain.ts EXPLAIN ANALYZE on the hot queries (npm run explain)
-  tests/                 integration tests (Vitest + Supertest, real Postgres)
-web/src/
-  pages/ItemPage.tsx     optimistic updates, rollback, "This item changed, reload"
-  pages/ItemsPage.tsx    tabs, stats row, filters, search, cursor pagination ("Load more"); the item opens as a panel
-  live.ts                live updates: reads the item's event stream and refetches on "change"
-```
-
-### API
-
-| Method & path | Notes |
+| Where | What |
 |---|---|
-| `POST /auth/login` | `{ email, password }` → `{ token }` |
-| `GET /me` | current user and role per team |
-| `GET /items?status=&priority=&type=&team=&assignee=me\|none\|<id>&q=&cursor=&limit=` | only your teams; newest first; `{ items, nextCursor }`. `q` = full-text over title + description, plus partial title match |
-| `POST /items` | **requires `Idempotency-Key` header** |
-| `GET /items/stats` | counts by status, assigned to me, unassigned, new today vs yesterday (own teams only) |
-| `GET /items/:id` | 404 if not in your team |
-| `PATCH /items/:id` | `{ version, title?, description?, priority?, due_date? }`; 409 on stale version |
-| `POST /items/:id/claim` | Open → In Progress and assign to me; 409 if already claimed. Optional `Idempotency-Key` (also on transition and comments) |
-| `POST /items/:id/transition` | `{ to, version }` |
-| `GET /items/:id/activity`, `POST /items/:id/comments` | history and comments |
-| `GET /items/:id/live` | live updates: a `text/event-stream` that sends `change` when the item or its history moves |
-| `GET /dashboard` | assigned to me / unassigned urgent / awaiting my approval |
-| `GET /notifications` | written by the worker |
+| `server/src/permissions.ts` | `can()`: every permission rule in one place |
+| `server/src/workflow.ts` | allowed moves, approval rules |
+| `server/src/routes/items.ts` | list (filters, search, cursor pagination), claim, transition, edit, comments, live stream |
+| `server/src/idempotency.ts`, `worker.ts` | idempotent writes; outbox worker |
+| `server/migrations/` | plain SQL: schema, indexes, CHECK invariants, append-only trigger |
+| `web/src/pages/ItemPage.tsx` | optimistic updates and rollback |
 
-## Deploying on Vercel
+**API:** `POST /auth/login` · `GET /items` (filters, `q`, `cursor`) · `POST /items` · `GET|PATCH /items/:id` ·
+`POST /items/:id/claim` · `POST /items/:id/transition` · `POST /items/:id/comments` · `GET /items/:id/activity` ·
+`GET /items/:id/live` · `GET /items/stats` · `GET /dashboard` · `GET /notifications`
 
-The live demo runs the same code on Vercel with a Neon Postgres database (`vercel.json`):
+## More
 
-- The React app is served as static files; `/api/*` goes to **one Vercel Function** (`api/index.js`) that runs the
-  same Express app (`server/src/vercel.ts`). The function runs in Singapore (`sin1`), next to the database.
-- Each build runs the migrations and the seed (skipped if data exists) on Neon's direct connection; requests use the pooled one.
-- **No worker process:** Vercel has no long-running processes, so after each write request the function drains the
-  outbox itself, after the response is sent (`waitUntil`). Jobs still go through `outbox_jobs` with `SKIP LOCKED`,
-  so retries, backoff and "never twice" work as in Docker.
-- Settings: `DATABASE_URL` / `DATABASE_URL_UNPOOLED` (added by the Neon integration) and `JWT_SECRET`.
-
-To deploy your own copy: `vercel link`, add Neon from the project's Storage tab, `vercel env add JWT_SECRET production`, then `vercel deploy --prod`.
-
-## Known limitations
-
-See [ENGINEERING_DECISIONS.md](ENGINEERING_DECISIONS.md#known-limitations) for the full list. In short:
-
-- Idempotency keys never expire (needs a cleanup job). `PATCH` doesn't take one (its `version` check already stops a double save, but a retry after a lost reply gets a 409).
-- No reassign/unassign: an item gets an assignee only by being claimed.
-- Live updates cover the open item page; lists and the dashboard still poll every 15 s. Notifications are in-app only, with no read/unread state.
-- On Vercel, a failed notification job is retried on the next write request rather than a few seconds later, because there is no always-on worker.
-- JWT is stored in `localStorage` with an 8-hour expiry: no refresh tokens or revocation. Login is rate-limited per email, not per IP.
-- Search results are newest first, not ranked by relevance; no typo tolerance. The activity endpoint is not paginated.
-- Browser tests cover only the optimistic-update flows, not every page.
-
-## References
-
-Transaction pattern inspired by jajego/interlock; testing approach inspired by edwardmagongo/LedgerAPI;
-product shape inspired by TicketForge.
-No code was copied from these projects.
+- **Why it's built this way** (choices, rejected options, costs, measured query plans):
+  [ENGINEERING_DECISIONS.md](ENGINEERING_DECISIONS.md)
+- **Known limitations and next steps:** [ENGINEERING_DECISIONS.md → Known limitations](ENGINEERING_DECISIONS.md#known-limitations)
+- **Live deployment:** Vercel (the same Express app as one function) + Neon Postgres; no worker process, so the
+  outbox is processed after each write. See decision 8.
