@@ -1,13 +1,24 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": [
+    "sin1"
+  ],
   "installCommand": "npm ci --prefix server && npm ci --prefix web",
   "buildCommand": "npm run build --prefix server && DATABASE_URL=${DATABASE_URL_UNPOOLED:-$DATABASE_URL} sh -c 'npm run migrate --prefix server && npm run seed --prefix server' && npm run build --prefix web",
   "outputDirectory": "web/dist",
   "functions": {
-    "api/index.js": { "maxDuration": 30 }
+    "api/index.js": {
+      "maxDuration": 30
+    }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }

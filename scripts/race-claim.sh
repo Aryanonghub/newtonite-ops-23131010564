@@ -20,4 +20,4 @@ echo "Item $ID: Sara and Mohan claim it at the same moment"
 curl -s -o /dev/null -w "  Sara:  %{http_code}\n" -X POST "$API/items/$ID/claim" -H "Authorization: Bearer $SARA" &
 curl -s -o /dev/null -w "  Mohan: %{http_code}\n" -X POST "$API/items/$ID/claim" -H "Authorization: Bearer $MOHAN" &
 wait
-echo "See who won: http://localhost:8088/items/$ID"
+echo "See who won: ${API%/api}/items/$ID"

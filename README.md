@@ -2,6 +2,9 @@
 
 [![CI](https://github.com/Aryanonghub/newtonite-ops-23131010564/actions/workflows/ci.yml/badge.svg)](https://github.com/Aryanonghub/newtonite-ops-23131010564/actions/workflows/ci.yml)
 
+**Live demo: https://newtonite-ops-opal.vercel.app** (pick a demo person on the sign-in page; all passwords are `password123`).
+The demo data is shared, so other visitors may be changing items at the same time, which is a good way to see the conflict handling.
+
 An internal web app where teams such as Payments, Support and Compliance create, claim, track and resolve
 work items. Items move through a server-enforced workflow (Open → In Progress → Awaiting Approval →
 Resolved → Closed), and only a Lead of the item's team can approve. Every change is written to an
@@ -176,6 +179,7 @@ web/src/
 | `GET /me` | current user and role per team |
 | `GET /items?status=&priority=&type=&team=&assignee=me\|none\|<id>&q=&cursor=&limit=` | only your teams; newest first; `{ items, nextCursor }`. `q` = full-text over title + description, plus partial title match |
 | `POST /items` | **requires `Idempotency-Key` header** |
+| `GET /items/stats` | counts by status, assigned to me, unassigned, new today vs yesterday (own teams only) |
 | `GET /items/:id` | 404 if not in your team |
 | `PATCH /items/:id` | `{ version, title?, description?, priority?, due_date? }`; 409 on stale version |
 | `POST /items/:id/claim` | Open → In Progress and assign to me; 409 if already claimed |
@@ -184,6 +188,20 @@ web/src/
 | `GET /dashboard` | assigned to me / unassigned urgent / awaiting my approval |
 | `GET /notifications` | written by the worker |
 
+## Deploying on Vercel
+
+The live demo runs the same code on Vercel with a Neon Postgres database (`vercel.json`):
+
+- The React app is served as static files; `/api/*` goes to **one Vercel Function** (`api/index.js`) that runs the
+  same Express app (`server/src/vercel.ts`). The function runs in Singapore (`sin1`), next to the database.
+- Each build runs the migrations and the seed (skipped if data exists) on Neon's direct connection; requests use the pooled one.
+- **No worker process:** Vercel has no long-running processes, so after each write request the function drains the
+  outbox itself, after the response is sent (`waitUntil`). Jobs still go through `outbox_jobs` with `SKIP LOCKED`,
+  so retries, backoff and "never twice" work as in Docker.
+- Settings: `DATABASE_URL` / `DATABASE_URL_UNPOOLED` (added by the Neon integration) and `JWT_SECRET`.
+
+To deploy your own copy: `vercel link`, add Neon from the project's Storage tab, `vercel env add JWT_SECRET production`, then `vercel deploy --prod`.
+
 ## Known limitations
 
 See [ENGINEERING_DECISIONS.md](ENGINEERING_DECISIONS.md#known-limitations) for the full list. In short:
@@ -191,6 +209,7 @@ See [ENGINEERING_DECISIONS.md](ENGINEERING_DECISIONS.md#known-limitations) for t
 - Idempotency keys never expire (needs a cleanup job), and only `POST /items` uses them.
 - No reassign/unassign: an item gets an assignee only by being claimed.
 - Updates arrive by polling (10–15 s), not websockets. Notifications are in-app only, with no read/unread state.
+- On Vercel, a failed notification job is retried on the next write request rather than a few seconds later, because there is no always-on worker.
 - JWT is stored in `localStorage` with an 8-hour expiry: no refresh tokens, revocation or login rate limiting.
 - Search results are newest first, not ranked by relevance; no typo tolerance. The activity endpoint is not paginated.
 - Browser tests cover only the optimistic-update flows, not every page.
