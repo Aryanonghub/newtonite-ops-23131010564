@@ -1,27 +1,39 @@
-import { Alert, Box, Button, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Divider, Paper, Stack, TextField, Typography } from '@mui/material';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { api, setToken } from '../api';
+import { Brand } from '../brand';
+import { PersonAvatar } from '../components';
+import { SIDEBAR_BG, SIDEBAR_TEXT } from '../theme';
 
-// Seeded demo accounts (all use password123), one per role.
+// Seeded demo accounts (all use password123), one per role. Clicking one logs straight in.
 const DEMO = [
-  ['admin@ops.test', 'Admin (all teams)'],
-  ['priya@ops.test', 'Lead (Payments)'],
-  ['mohan@ops.test', 'Member (Payments)'],
-  ['sara@ops.test', 'Member (Payments + Support)'],
-  ['vik@ops.test', 'Viewer'],
-  ['lena@ops.test', 'Lead (Support)'],
+  { email: 'admin@ops.test', name: 'Ada Admin', role: 'Admin · all teams' },
+  { email: 'priya@ops.test', name: 'Priya', role: 'Lead · Payments' },
+  { email: 'mohan@ops.test', name: 'Mohan', role: 'Member · Payments' },
+  { email: 'sara@ops.test', name: 'Sara', role: 'Member · Payments + Support' },
+  { email: 'vik@ops.test', name: 'Vik', role: 'Viewer · read-only' },
+  { email: 'lena@ops.test', name: 'Lena', role: 'Lead · Support' },
+];
+
+// What the system guarantees, shown on the left so a reviewer knows what to try.
+const PROMISES = [
+  ['One winner per claim', 'Two people claim at once: one succeeds, the other is told who did.'],
+  ['No silent overwrites', 'Acting on an old page is refused with what changed and by whom.'],
+  ['Four-eyes approval', 'Only a Lead of the team approves, and never their own submission.'],
+  ['History you can trust', 'Every change and its history entry commit together, or not at all.'],
 ];
 
 export function LoginPage() {
-  const [email, setEmail] = useState('priya@ops.test');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const login = useMutation({
-    mutationFn: () => api<{ token: string }>('/auth/login', { method: 'POST', body: { email, password } }),
+    mutationFn: (creds: { email: string; password: string }) =>
+      api<{ token: string }>('/auth/login', { method: 'POST', body: creds }),
     onSuccess: ({ token }) => {
       setToken(token);
       queryClient.removeQueries(); // drop cached data from any previous user
@@ -30,22 +42,75 @@ export function LoginPage() {
   });
 
   return (
-    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
-      <Paper sx={{ p: 4, width: 420 }}>
-        <Typography variant="h5" gutterBottom>Ops Under Pressure</Typography>
-        <Stack component="form" spacing={2} onSubmit={(e) => { e.preventDefault(); login.mutate(); }}>
-          <TextField label="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <TextField label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          {login.error && <Alert severity="error">{login.error.message}</Alert>}
-          <Button type="submit" variant="contained" disabled={login.isPending}>Log in</Button>
-        </Stack>
-        <Typography variant="subtitle2" sx={{ mt: 3 }}>Demo users (password123)</Typography>
-        <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1, mt: 1 }}>
-          {DEMO.map(([demoEmail, role]) => (
-            <Button key={demoEmail} size="small" variant="outlined" onClick={() => setEmail(demoEmail)}>{role}</Button>
-          ))}
-        </Stack>
-      </Paper>
+    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      {/* Left: brand and what the system promises. Hidden on small screens. */}
+      <Stack sx={{
+        display: { xs: 'none', md: 'flex' }, width: '44%', bgcolor: SIDEBAR_BG, color: SIDEBAR_TEXT, p: 6,
+        backgroundImage: 'radial-gradient(circle at 20% 0%, rgba(79,70,229,0.35), transparent 55%)',
+      }}>
+        <Brand dark size={34} />
+        <Box sx={{ my: 'auto', maxWidth: 440 }}>
+          <Typography variant="h4" sx={{ color: '#fff', mb: 1.5 }}>Operations under pressure</Typography>
+          <Typography sx={{ mb: 4 }}>
+            Payments, Support and Compliance teams create, claim and resolve work items, and the system stays
+            correct when many people act on the same item at once.
+          </Typography>
+          <Stack spacing={2.5}>
+            {PROMISES.map(([title, text]) => (
+              <Stack key={title} direction="row" spacing={1.5}>
+                <Box sx={{ mt: '3px', width: 18, height: 18, flexShrink: 0, borderRadius: '50%', bgcolor: '#4f46e5',
+                  color: '#fff', fontSize: 11, display: 'grid', placeItems: 'center' }}>✓</Box>
+                <Box>
+                  <Typography sx={{ color: '#fff', fontWeight: 600, fontSize: 15 }}>{title}</Typography>
+                  <Typography variant="body2">{text}</Typography>
+                </Box>
+              </Stack>
+            ))}
+          </Stack>
+        </Box>
+        <Typography variant="caption" sx={{ color: '#6b7280' }}>
+          A Newtonite Software Engineering Challenge submission, not an official Newtonite product.
+        </Typography>
+      </Stack>
+
+      {/* Right: sign in. */}
+      <Box sx={{ flexGrow: 1, display: 'grid', placeItems: 'center', p: { xs: 2, sm: 4 } }}>
+        <Box sx={{ width: '100%', maxWidth: 440 }}>
+          <Box sx={{ display: { md: 'none' }, mb: 4 }}><Brand size={30} /></Box>
+          <Typography variant="h5">Sign in</Typography>
+          <Typography color="text.secondary" sx={{ mb: 3 }}>Pick a demo person, or use an email and password.</Typography>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.25 }}>
+            {DEMO.map((d) => (
+              <Paper key={d.email} component="button" type="button" disabled={login.isPending}
+                onClick={() => login.mutate({ email: d.email, password: 'password123' })}
+                sx={{
+                  p: 1.5, display: 'flex', alignItems: 'center', gap: 1.25, textAlign: 'left', cursor: 'pointer',
+                  font: 'inherit', bgcolor: 'background.paper', transition: 'border-color .15s, box-shadow .15s',
+                  '&:hover': { borderColor: 'primary.main', boxShadow: '0 0 0 3px rgba(79,70,229,0.12)' },
+                }}>
+                <PersonAvatar name={d.name} size={32} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{d.name}</Typography>
+                  <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>{d.role}</Typography>
+                </Box>
+              </Paper>
+            ))}
+          </Box>
+
+          <Divider sx={{ my: 3, color: 'text.secondary', fontSize: 13 }}>or</Divider>
+
+          <Stack component="form" spacing={2} onSubmit={(e) => { e.preventDefault(); login.mutate({ email, password }); }}>
+            <TextField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
+            <TextField label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password" helperText="Every demo account uses password123" />
+            {login.error && <Alert severity="error">{login.error.message}</Alert>}
+            <Button type="submit" variant="contained" size="large" disabled={login.isPending || !email || !password}>
+              {login.isPending ? 'Signing in…' : 'Sign in'}
+            </Button>
+          </Stack>
+        </Box>
+      </Box>
     </Box>
   );
 }

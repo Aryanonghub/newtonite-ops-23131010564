@@ -1,13 +1,13 @@
 import {
-  Alert, AlertTitle, Avatar, Box, Button, Divider, MenuItem, Paper, Snackbar, Stack, Step, StepLabel, Stepper, TextField,
+  Alert, AlertTitle, Box, Button, Divider, MenuItem, Paper, Snackbar, Stack, Step, StepLabel, Stepper, TextField,
   Typography,
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import { ApiError, api } from '../api';
 import { useMe } from '../App';
-import { PriorityChip, StatusChip } from '../components';
+import { DueDate, Person, PersonAvatar, PriorityChip, StatusChip } from '../components';
 import { PRIORITIES, STATUSES, label, timeAgo, type ActivityEvent, type Item } from '../types';
 import { ACTIONS, atLeast, canApprove, nextStep, roleIn } from '../workflow';
 
@@ -111,6 +111,10 @@ export function ItemPage() {
 
   return (
     <Stack spacing={2}>
+      <Button component={Link} to="/items" size="small" sx={{ alignSelf: 'flex-start', color: 'text.secondary', px: 0 }}>
+        ← Work items
+      </Button>
+
       {error && (error.status === 409 ? (
         <Alert severity="warning" action={<Button color="inherit" onClick={reload}>Reload</Button>}>
           <AlertTitle>This item changed, reload</AlertTitle>
@@ -120,87 +124,115 @@ export function ItemPage() {
         <Alert severity="error" onClose={() => setError(null)}>{error.message}</Alert>
       ))}
 
-      <Paper sx={{ p: 3 }}>
-        {draft ? (
-          <Stack spacing={2}>
-            <TextField label="Title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
-            <TextField label="Description" multiline minRows={3} value={draft.description}
-              onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
-            <TextField select label="Priority" value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value })}>
-              {PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
-            </TextField>
-            <TextField label="Due date" type="date" value={draft.due_date} slotProps={{ inputLabel: { shrink: true } }}
-              onChange={(e) => setDraft({ ...draft, due_date: e.target.value })} />
-            <Stack direction="row" spacing={1}>
-              <Button variant="contained" onClick={saveEdit} disabled={change.isPending}>Save</Button>
-              <Button onClick={() => setDraft(null)}>Cancel</Button>
-            </Stack>
-          </Stack>
-        ) : (
-          <>
-            <Typography variant="h5">#{item.id} {item.title}</Typography>
-            <Stack direction="row" spacing={1} sx={{ my: 1, alignItems: 'center' }}>
-              <StatusChip status={item.status} />
-              <PriorityChip priority={item.priority} />
-              <Typography variant="body2" color="text.secondary">
-                {label(item.type)} · {item.team_name} · assignee: {item.assignee_name ?? 'none'} ·
-                created by {item.created_by_name}
-                {item.submitted_by_name && ` · submitted by ${item.submitted_by_name}`} · due: {item.due_date ?? '—'} ·
-                v{item.version}
-              </Typography>
-            </Stack>
-            <WorkflowSteps status={item.status} />
-            <Typography sx={{ whiteSpace: 'pre-wrap', my: 2 }}>{item.description || 'No description.'}</Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) 300px' }, gap: 3, alignItems: 'start' }}>
+        <Stack spacing={3} sx={{ minWidth: 0 }}>
+          <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            {draft ? (
+              <Stack spacing={2}>
+                <Typography variant="h6">Edit item</Typography>
+                <TextField label="Title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+                <TextField label="Description" multiline minRows={3} value={draft.description}
+                  onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+                <TextField select label="Priority" value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value })}>
+                  {PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+                </TextField>
+                <TextField label="Due date" type="date" value={draft.due_date} slotProps={{ inputLabel: { shrink: true } }}
+                  onChange={(e) => setDraft({ ...draft, due_date: e.target.value })} />
+                <Stack direction="row" spacing={1}>
+                  <Button variant="contained" onClick={saveEdit} disabled={change.isPending}>Save</Button>
+                  <Button onClick={() => setDraft(null)}>Cancel</Button>
+                </Stack>
+              </Stack>
+            ) : (
+              <>
+                <Typography variant="caption" color="text.secondary">
+                  #{item.id} · {item.team_name} · {label(item.type)}
+                </Typography>
+                <Typography variant="h5" sx={{ mt: 0.5 }}>{item.title}</Typography>
+                <WorkflowSteps status={item.status} />
+                <Typography sx={{ whiteSpace: 'pre-wrap', color: item.description ? 'text.primary' : 'text.secondary' }}>
+                  {item.description || 'No description.'}
+                </Typography>
 
-            <Stack direction="row" spacing={1}>
-              {item.status === 'open' && atLeast(role, 'member') && (
-                <Button variant="contained" onClick={claim} disabled={change.isPending}>Claim</Button>
-              )}
-              {ACTIONS[item.status]
-                // 'resolved' is the Approve button, the only one that also needs the four-eyes check.
-                .filter((a) => atLeast(role, a.minRole) && (a.to !== 'resolved' || canApprove(role, submittedByMe)))
-                .map((a) => (
-                <Button key={a.to} variant="outlined" onClick={() => transition(a.to, a.done)} disabled={change.isPending}>
-                  {a.label}
-                </Button>
-              ))}
-              {atLeast(role, 'member') && (
-                <Button onClick={() => setDraft({
-                  title: item.title, description: item.description, priority: item.priority,
-                  due_date: item.due_date ?? '', version: item.version,
-                })}>Edit</Button>
-              )}
-            </Stack>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-              {nextStep(item.status, role, item.team_name, submittedByMe)}
-            </Typography>
-          </>
-        )}
-      </Paper>
+                <Box sx={{ mt: 3, p: 2, borderRadius: 2, bgcolor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="body2" sx={{ mb: 1.5 }}>
+                    <b>Next step:</b> {nextStep(item.status, role, item.team_name, submittedByMe)}
+                  </Typography>
+                  <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
+                    {item.status === 'open' && atLeast(role, 'member') && (
+                      <Button variant="contained" onClick={claim} disabled={change.isPending}>Claim</Button>
+                    )}
+                    {ACTIONS[item.status]
+                      // 'resolved' is the Approve button, the only one that also needs the four-eyes check.
+                      .filter((a) => atLeast(role, a.minRole) && (a.to !== 'resolved' || canApprove(role, submittedByMe)))
+                      .map((a, i) => (
+                        <Button key={a.to} variant={i === 0 ? 'contained' : 'outlined'} onClick={() => transition(a.to, a.done)}
+                          disabled={change.isPending}>
+                          {a.label}
+                        </Button>
+                      ))}
+                    {atLeast(role, 'member') && (
+                      <Button onClick={() => setDraft({
+                        title: item.title, description: item.description, priority: item.priority,
+                        due_date: item.due_date ?? '', version: item.version,
+                      })}>Edit</Button>
+                    )}
+                  </Stack>
+                </Box>
+              </>
+            )}
+          </Paper>
 
-      <Paper sx={{ p: 3 }}>
-        <Typography variant="h6" sx={{ mb: 2 }}>Activity</Typography>
-        <Timeline events={activity.data?.events ?? []} />
-        {atLeast(role, 'member') && (
-          <>
-            <Divider sx={{ my: 2 }} />
-            <Stack direction="row" spacing={1}>
-              <TextField size="small" fullWidth placeholder="Add a comment" value={commentText}
-                onChange={(e) => setCommentText(e.target.value)} />
-              <Button variant="contained" disabled={!commentText.trim() || comment.isPending}
-                onClick={() => comment.mutate(commentText, { onSuccess: () => setCommentText('') })}>
-                Comment
-              </Button>
-            </Stack>
-            {comment.error && <Alert severity="error" sx={{ mt: 1 }}>{comment.error.message}</Alert>}
-          </>
-        )}
-      </Paper>
+          <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>Activity</Typography>
+            <Timeline events={activity.data?.events ?? []} />
+            {atLeast(role, 'member') && (
+              <>
+                <Divider sx={{ my: 2 }} />
+                <Stack direction="row" spacing={1}>
+                  <TextField size="small" fullWidth placeholder="Add a comment" value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)} />
+                  <Button variant="contained" disabled={!commentText.trim() || comment.isPending}
+                    onClick={() => comment.mutate(commentText, { onSuccess: () => setCommentText('') })}>
+                    Comment
+                  </Button>
+                </Stack>
+                {comment.error && <Alert severity="error" sx={{ mt: 1 }}>{comment.error.message}</Alert>}
+              </>
+            )}
+          </Paper>
+        </Stack>
+
+        <Paper sx={{ p: 2.5, position: { md: 'sticky' }, top: { md: 24 } }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>Details</Typography>
+          <Detail name="Status"><StatusChip status={item.status} /></Detail>
+          <Detail name="Priority"><PriorityChip priority={item.priority} /></Detail>
+          <Detail name="Assignee"><Person name={item.assignee_name} short /></Detail>
+          {item.submitted_by_name && <Detail name="Submitted by"><Person name={item.submitted_by_name} short /></Detail>}
+          <Detail name="Created by"><Person name={item.created_by_name} short /></Detail>
+          <Detail name="Team"><Typography variant="body2">{item.team_name}</Typography></Detail>
+          <Detail name="Due"><DueDate item={item} /></Detail>
+          <Detail name="Updated">
+            <Typography variant="body2" title={new Date(item.updated_at).toLocaleString()}>{timeAgo(item.updated_at)}</Typography>
+          </Detail>
+          <Detail name="Version"><Typography variant="body2" color="text.secondary">v{item.version}</Typography></Detail>
+        </Paper>
+      </Box>
 
       <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
         <Alert severity="success" variant="filled" onClose={() => setToast(null)}>{toast}</Alert>
       </Snackbar>
+    </Stack>
+  );
+}
+
+// One label/value row in the Details card.
+function Detail({ name, children }: { name: string; children: React.ReactNode }) {
+  return (
+    <Stack direction="row" sx={{ py: 1, alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>{name}</Typography>
+      <Box sx={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{children}</Box>
     </Stack>
   );
 }
@@ -221,17 +253,7 @@ function WorkflowSteps({ status }: { status: Item['status'] }) {
   );
 }
 
-// One colour per kind of event, used for the avatar dot.
-const KIND_COLOR: Record<string, string> = {
-  created: '#1976d2',
-  status_changed: '#9c27b0',
-  assignee_changed: '#2e7d32',
-  priority_changed: '#ed6c02',
-  edited: '#757575',
-  commented: '#0288d1',
-};
-
-// Vertical timeline: avatar with the actor's initial, a line joining events, comments as bubbles.
+// Vertical timeline: the actor's avatar, a line joining events, comments as bubbles.
 function Timeline({ events }: { events: ActivityEvent[] }) {
   if (events.length === 0) return <Typography color="text.secondary">No activity yet.</Typography>;
   return (
@@ -239,9 +261,7 @@ function Timeline({ events }: { events: ActivityEvent[] }) {
       {events.map((e, i) => (
         <Stack key={e.id} direction="row" spacing={2}>
           <Stack sx={{ alignItems: 'center' }}>
-            <Avatar sx={{ width: 32, height: 32, fontSize: 14, bgcolor: KIND_COLOR[e.kind] ?? 'grey.500' }}>
-              {e.actor_name.charAt(0)}
-            </Avatar>
+            <PersonAvatar name={e.actor_name} size={32} />
             {i < events.length - 1 && <Box sx={{ flexGrow: 1, width: 2, bgcolor: 'divider', my: 0.5 }} />}
           </Stack>
           <Box sx={{ pb: 2.5, flexGrow: 1, minWidth: 0 }}>

@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { api } from '../api';
 import { useMe } from '../App';
-import { ItemsTable } from '../components';
+import { ItemsTable, PageHeader } from '../components';
 import { PRIORITIES, STATUSES, TYPES, label, type Item, type ItemPage } from '../types';
 import { atLeast } from '../workflow';
 
@@ -50,23 +50,25 @@ export function ItemsPage() {
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" sx={{ alignItems: 'center' }}>
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>Work items</Typography>
-        {canCreate && <Button variant="contained" onClick={() => setCreating(true)}>New item</Button>}
-      </Stack>
+      <PageHeader title="Work items" subtitle="Everything in your teams, newest first."
+        action={canCreate && <Button variant="contained" onClick={() => setCreating(true)}>New item</Button>} />
 
-      <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
-        <TextField size="small" label="Search" placeholder='e.g. refund failed, "card declined"' value={search} onChange={(e) => setSearch(e.target.value)} />
+      <Paper sx={{ p: 2, display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
+        <TextField size="small" label="Search" placeholder='e.g. refund failed, "card declined"' value={search}
+          onChange={(e) => setSearch(e.target.value)} sx={{ flex: '1 1 260px' }} />
         {select('status', 'Status', STATUSES.map((s) => [s, label(s)]))}
         {select('priority', 'Priority', PRIORITIES.map((p) => [p, p]))}
         {select('type', 'Type', TYPES.map((t) => [t, label(t)]))}
         {select('team', 'Team', (me?.teams ?? []).map((t) => [String(t.id), t.name]))}
         {select('assignee', 'Assignee', [['me', 'Me'], ['none', 'Unassigned']])}
-      </Stack>
+        {Object.values(filters).some(Boolean) && (
+          <Button onClick={() => { setFilters(EMPTY); setSearch(''); }}>Clear filters</Button>
+        )}
+      </Paper>
 
       <Paper>
         {list.error && <Alert severity="error">{list.error.message}</Alert>}
-        {list.isPending ? <Typography sx={{ p: 2 }}>Loading…</Typography> : <ItemsTable items={items} />}
+        {list.isPending ? <Typography sx={{ p: 2 }}>Loading…</Typography> : <ItemsTable items={items} empty="No items match these filters" />}
       </Paper>
       {list.hasNextPage && (
         <Button onClick={() => list.fetchNextPage()} disabled={list.isFetchingNextPage}>
