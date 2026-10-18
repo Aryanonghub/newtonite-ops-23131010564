@@ -58,7 +58,7 @@ The tests run against a separate `ops_test` database in the same Postgres contai
 docker compose up -d db        # Postgres must be running
 cd server
 npm ci
-npm test                       # 43 tests, about 10 seconds
+npm test                       # 45 tests, about 10 seconds
 ```
 
 The tests never touch the demo data. They refuse to run against any database whose name doesn't end in `_test`.
@@ -68,7 +68,7 @@ The tests never touch the demo data. They refuse to run against any database who
 | `claim.test.ts` | 2 and 10 parallel claims → exactly one 200, the rest 409; DB and history agree |
 | `optimistic-locking.test.ts` | PATCH/transition with an old `version` → 409 with the latest item; data and history unchanged |
 | `idempotency.test.ts` | Same `Idempotency-Key` twice → one item, byte-identical response; different body → 422; 5 parallel same-key requests → one item |
-| `workflow.test.ts` | Open → Closed rejected (422); Member approval rejected (403); Lead/Admin approval allowed; full path recorded in order |
+| `workflow.test.ts` | Open → Closed rejected (422); Member approval rejected (403); Lead/Admin approval allowed; a second approver gets 409 (not a workflow error); full path recorded in order |
 | `authorization.test.ts` | User from another team → 404 on every read and write; lists/dashboard scoped to own teams; Viewer read-only |
 | `outbox.test.ts` | Job written in the same transaction; job processed twice → one notification; failing job retries with backoff then `failed`; two workers never run the same job |
 | `list.test.ts` | Cursor pagination never skips or repeats rows (even with identical timestamps); filters; `%` in search is literal |
@@ -78,8 +78,10 @@ The tests never touch the demo data. They refuse to run against any database who
 `server/src/routes/items.ts` and run `npx vitest run tests/claim.test.ts`. All 3 claim tests fail
 (`expected [200, 200] to deeply equal [200, 409]`). Restore it with `git checkout -- src/routes/items.ts`.
 
-**See the race yourself** (with the app running): `./scripts/race-claim.sh` sends two claims for the same
-item at the same instant and prints one `200` and one `409`.
+**See the race yourself** (with the app running):
+- `./scripts/race-claim.sh`: two users claim the same item at the same instant → one `200`, one `409`.
+- `./scripts/race-approve.sh`: a Lead and an Admin approve the same item, at the same instant and then
+  2 seconds apart from an out-of-date page → one `200`, one `409` each time.
 
 ## Architecture
 

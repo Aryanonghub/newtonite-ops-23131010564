@@ -52,6 +52,30 @@ describe('workflow', () => {
     expect((await dbItem(item.id)).status).toBe('resolved');
   });
 
+  it('a second approver gets 409 "changed", not a workflow error', async () => {
+    const item = await awaitingApproval();
+    await transition(f.lee, item.id, 'resolved', 3).expect(200);
+
+    // Ada's page still shows version 3 / Awaiting Approval.
+    const res = await transition(f.ada, item.id, 'resolved', 3);
+
+    expect(res.status).toBe(409);
+    expect(res.body.item).toMatchObject({ status: 'resolved', version: 4 });
+  });
+
+  it('two Leads approving at the same moment: one 200, one 409', async () => {
+    const item = await awaitingApproval();
+
+    const results = await Promise.all([
+      transition(f.lee, item.id, 'resolved', 3),
+      transition(f.ada, item.id, 'resolved', 3),
+    ]);
+
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    const approvals = (await dbEvents(item.id)).filter((e) => e.to_value === 'resolved');
+    expect(approvals).toHaveLength(1); // history records exactly one approval
+  });
+
   it('allows approval by an Admin', async () => {
     const item = await awaitingApproval();
     await transition(f.ada, item.id, 'resolved', 3).expect(200);

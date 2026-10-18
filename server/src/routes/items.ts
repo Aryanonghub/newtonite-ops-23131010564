@@ -209,6 +209,10 @@ itemsRouter.post('/:id/transition', async (req, res) => {
   const item = await withTransaction(async (client) => {
     const before = await loadItem(client, id);
     authorize(user, 'transition', before);
+    // Stale page? Say so before checking workflow rules. Otherwise a second approver would get
+    // "Cannot move from resolved to resolved" instead of "this item changed". The WHERE version
+    // check below still handles two requests that both pass this line at the same instant.
+    if (before.version !== version) await conflict(client, id, 'This item was changed by someone else. Reload and try again.');
     checkTransition(user, before, to); // allowed-transitions map + Lead/Admin-only approval
 
     // Version check: also guarantees the status we validated above is still the current one.
