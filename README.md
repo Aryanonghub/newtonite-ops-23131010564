@@ -74,6 +74,26 @@ The tests never touch the demo data. They refuse to run against any database who
 | `list.test.ts` | Cursor pagination never skips or repeats rows (even with identical timestamps); filters; full-text search (description words, any word order, word forms, `"phrase"`, `-exclude`), partial title match, scoped to own teams |
 | `activity.test.ts` | History is append-only (DB rejects UPDATE/DELETE); a rejected write leaves no history |
 
+### Browser tests (optimistic UI)
+
+Three Playwright tests drive a real browser against the running app:
+
+```bash
+docker compose up -d           # the full app must be running (http://localhost:8088)
+cd web
+npm ci
+npx playwright install chromium   # one-time browser download
+npm run test:e2e               # 3 tests, about 10 seconds
+```
+
+| Test | Proves |
+|---|---|
+| second approver | Two separate logins approve the same item. The second one's page **rolls back** and shows "This item changed, reload" with no false success message; Reload shows the real status |
+| 403 | When the server refuses (403), the UI rolls back and shows the server's exact reason |
+| optimistic claim | With the server reply delayed by 1.5 s, the UI already shows "in progress" before the server answers |
+
+Removing the rollback line in `web/src/pages/ItemPage.tsx` (`onError`) makes the first two fail.
+
 **Proving the tests are real:** remove `AND assignee_id IS NULL` from the claim `UPDATE` in
 `server/src/routes/items.ts` and run `npx vitest run tests/claim.test.ts`. All 3 claim tests fail
 (`expected [200, 200] to deeply equal [200, 409]`). Restore it with `git checkout -- src/routes/items.ts`.
@@ -141,7 +161,7 @@ See [ENGINEERING_DECISIONS.md](ENGINEERING_DECISIONS.md#known-limitations) for t
 - Updates arrive by polling (10–15 s), not websockets. Notifications are in-app only, with no read/unread state.
 - JWT is stored in `localStorage` with an 8-hour expiry: no refresh tokens, revocation or login rate limiting.
 - Search results are newest first, not ranked by relevance; no typo tolerance. The activity endpoint is not paginated.
-- The optimistic-UI rollback was checked by hand in a browser; there are no automated frontend tests.
+- Browser tests cover only the optimistic-update flows, not every page.
 
 ## References
 

@@ -197,9 +197,10 @@ insert, but a slow external call (email API) should instead mark the job "proces
 - **An ORM.** Plain SQL with `pg`, so every concurrency-critical statement is visible and reviewable. Validation uses `zod`.
 - **A migration library.** A 40-line runner applies `migrations/*.sql` in order, each in a transaction, with
   an advisory lock so two containers can't migrate at once.
-- **Frontend tests.** The optimistic rollback and the 409/403 messages were checked in a real browser
-  (including revoking a role while the page was open). The time went into server-side tests, where the
-  correctness rules live.
+- **A full frontend test suite.** Three Playwright tests cover what matters most in the UI: the optimistic
+  update, the rollback on 409 (two real browser logins) and on 403, and that no false success message
+  appears. Everything else was checked by hand. Most of the testing time went into server-side tests,
+  where the correctness rules live.
 
 ---
 
@@ -218,13 +219,13 @@ insert, but a slow external call (email API) should instead mark the job "proces
 - For users in many teams, list queries sort the matching rows instead of reading an index in order (see decision 6).
 - IDs are 32-bit integers (about 2.1 billion rows), which is plenty here but would need `BIGINT` for the activity table at very large scale.
 - The compose file has a dev-only default `JWT_SECRET`. Real deployments must set their own.
-- No automated frontend tests.
+- Browser tests cover only the optimistic-update flows. They also need the app running (`docker compose up`), unlike the server tests.
 
 ## Next week I would…
 
 1. Add a scheduled cleanup for idempotency keys and old `done` outbox jobs, and a small admin view to retry `failed` jobs.
 2. Add Lead-only **reassign/unassign** with the same conditional-update pattern and its own tests.
-3. Add Playwright tests for the optimistic-update rollback and the "This item changed, reload" flow.
+3. Extend the Playwright tests to the main pages (create, filters, comments) and run both test suites in CI on every push.
 4. Paginate the activity endpoint and add read/unread notifications.
 5. Make multi-team list queries index-friendly (one query per team, merged), then load-test with 1M items and `EXPLAIN ANALYZE`.
 6. Harden auth: httpOnly cookie instead of `localStorage`, short-lived tokens with refresh, login rate limiting.
