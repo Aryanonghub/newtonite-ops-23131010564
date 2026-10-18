@@ -26,9 +26,10 @@ dashboardRouter.get('/dashboard', requireAuth, async (req, res) => {
       [teams],
     ),
     pool.query(
-      `${ITEM_SELECT} WHERE w.team_id = ANY($1) AND w.status = 'awaiting_approval'
+      // Not my own submissions: the four-eyes rule means someone else has to approve those.
+      `${ITEM_SELECT} WHERE w.team_id = ANY($1) AND w.status = 'awaiting_approval' AND w.submitted_by <> $2
         ORDER BY w.updated_at ASC LIMIT ${LIMIT}`, // oldest first: they have waited longest
-      [approverTeams],
+      [approverTeams, user.id],
     ),
   ]);
 

@@ -92,6 +92,10 @@ nobody in another.
 - **404 vs 403:** a user outside the team gets **404**, so they can't even learn the item exists. A team
   member whose role is too low gets **403** with a reason the UI can show
   (*"Your role in this team (member) cannot approve items"*).
+- **Four-eyes:** whoever submitted an item for approval cannot approve it, whatever their role (Admins
+  included). The item stores `submitted_by` while it is Awaiting Approval (a CHECK constraint keeps the two
+  in step), and the rule lives in `can()` with the role rules, so there is still one place to look.
+  Their own submissions are left out of their "Awaiting my approval" list.
 - The JWT contains only the user id. Roles are **re-loaded from the database on every request**, so removing
   someone from a team takes effect immediately, not when their token expires. The UI hides buttons as a
   convenience only; I tested this by revoking a role while the page was open, and the server refused.

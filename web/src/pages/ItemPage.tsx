@@ -9,7 +9,7 @@ import { ApiError, api } from '../api';
 import { useMe } from '../App';
 import { PriorityChip, StatusChip } from '../components';
 import { PRIORITIES, STATUSES, label, timeAgo, type ActivityEvent, type Item } from '../types';
-import { ACTIONS, atLeast, nextStep, roleIn } from '../workflow';
+import { ACTIONS, atLeast, canApprove, nextStep, roleIn } from '../workflow';
 
 // A write = the request to send, what the item should look like if it succeeds,
 // and the message to show when the server confirms it.
@@ -82,6 +82,7 @@ export function ItemPage() {
   if (!item || !me) return <Typography>Loading…</Typography>;
 
   const role = roleIn(me, item.team_id);
+  const submittedByMe = item.submitted_by === me.id;
   const claim = () => change.mutate({
     request: () => api<Item>(`/items/${id}/claim`, { method: 'POST' }),
     optimistic: { assignee_id: me.id, assignee_name: me.name, status: 'in_progress' },
@@ -142,7 +143,9 @@ export function ItemPage() {
               <PriorityChip priority={item.priority} />
               <Typography variant="body2" color="text.secondary">
                 {label(item.type)} · {item.team_name} · assignee: {item.assignee_name ?? 'none'} ·
-                created by {item.created_by_name} · due: {item.due_date ?? '—'} · v{item.version}
+                created by {item.created_by_name}
+                {item.submitted_by_name && ` · submitted by ${item.submitted_by_name}`} · due: {item.due_date ?? '—'} ·
+                v{item.version}
               </Typography>
             </Stack>
             <WorkflowSteps status={item.status} />
@@ -152,7 +155,10 @@ export function ItemPage() {
               {item.status === 'open' && atLeast(role, 'member') && (
                 <Button variant="contained" onClick={claim} disabled={change.isPending}>Claim</Button>
               )}
-              {ACTIONS[item.status].filter((a) => atLeast(role, a.minRole)).map((a) => (
+              {ACTIONS[item.status]
+                // 'resolved' is the Approve button, the only one that also needs the four-eyes check.
+                .filter((a) => atLeast(role, a.minRole) && (a.to !== 'resolved' || canApprove(role, submittedByMe)))
+                .map((a) => (
                 <Button key={a.to} variant="outlined" onClick={() => transition(a.to, a.done)} disabled={change.isPending}>
                   {a.label}
                 </Button>
@@ -165,7 +171,7 @@ export function ItemPage() {
               )}
             </Stack>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-              {nextStep(item.status, role, item.team_name)}
+              {nextStep(item.status, role, item.team_name, submittedByMe)}
             </Typography>
           </>
         )}

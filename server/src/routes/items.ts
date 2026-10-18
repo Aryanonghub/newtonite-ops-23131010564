@@ -221,13 +221,14 @@ itemsRouter.post('/:id/transition', async (req, res) => {
     // "Cannot move from resolved to resolved" instead of "this item changed". The WHERE version
     // check below still handles two requests that both pass this line at the same instant.
     if (before.version !== version) await conflict(client, id, 'This item was changed by someone else. Reload and try again.');
-    checkTransition(user, before, to); // allowed-transitions map + Lead/Admin-only approval
+    checkTransition(user, before, to); // allowed-transitions map + Lead/Admin-only approval + four-eyes
 
     // Version check: also guarantees the status we validated above is still the current one.
+    // submitted_by remembers who asked for approval (for the four-eyes rule); cleared on any other move.
     const { rowCount } = await client.query(
-      `UPDATE work_items SET status = $3, version = version + 1, updated_at = now()
+      `UPDATE work_items SET status = $3, submitted_by = $4, version = version + 1, updated_at = now()
         WHERE id = $1 AND version = $2`,
-      [id, version, to],
+      [id, version, to, to === 'awaiting_approval' ? user.id : null],
     );
     if (rowCount === 0) await conflict(client, id, 'This item was changed by someone else. Reload and try again.');
 

@@ -27,13 +27,19 @@ export const ACTIONS: Record<Status, { to: Status; label: string; minRole: Role;
   closed: [],
 };
 
+// Four-eyes: whoever submitted an item for approval cannot approve it.
+export function canApprove(role: Role | null, submittedByMe: boolean): boolean {
+  return atLeast(role, 'lead') && !submittedByMe;
+}
+
 // One sentence under the buttons telling the user what happens next, from their point of view.
-export function nextStep(status: Status, role: Role | null, teamName: string): string {
+export function nextStep(status: Status, role: Role | null, teamName: string, submittedByMe: boolean): string {
   if (!atLeast(role, 'member')) return 'You have read-only access in this team.';
   switch (status) {
     case 'open': return 'Claim this item to start working on it.';
     case 'in_progress': return 'When the work is done, submit it for approval.';
     case 'awaiting_approval':
+      if (submittedByMe) return `You submitted this, so another Lead of ${teamName} must approve it.`;
       return atLeast(role, 'lead')
         ? 'Review the work, then approve it or send it back.'
         : `Waiting for a Lead of ${teamName} to approve.`;

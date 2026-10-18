@@ -11,14 +11,21 @@ login() {
 }
 PRIYA=$(login priya)   # Lead, Payments
 ADA=$(login admin)     # Admin, all teams
+MOHAN=$(login mohan)   # Member, Payments: submits the items, so neither approver is the submitter (four-eyes)
 
 approve() { # $1 = name, $2 = token, $3 = item id, $4 = version
   curl -s -o /dev/null -w "  $1: %{http_code}\n" -X POST "$API/items/$3/transition" \
     -H "Authorization: Bearer $2" -H 'Content-Type: application/json' -d "{\"to\":\"resolved\",\"version\":$4}"
 }
-next_waiting() { # prints "id version" of an item awaiting approval in Payments
-  curl -s "$API/items?status=awaiting_approval&team=1&limit=1" -H "Authorization: Bearer $PRIYA" \
-    | sed 's/.*"items":\[{"id":\([0-9]*\).*"version":\([0-9]*\).*/\1 \2/'
+next_waiting() { # Mohan creates, claims and submits a Payments item; prints "id version"
+  local id
+  id=$(curl -s -X POST "$API/items" -H "Authorization: Bearer $MOHAN" -H 'Content-Type: application/json' \
+    -H "Idempotency-Key: race-approve-$RANDOM-$RANDOM-$(date +%s)" \
+    -d '{"title":"Race approve demo","type":"task","priority":"high","team_id":1}' | sed 's/^{"id":\([0-9]*\).*/\1/')
+  curl -s -o /dev/null -X POST "$API/items/$id/claim" -H "Authorization: Bearer $MOHAN"
+  curl -s -o /dev/null -X POST "$API/items/$id/transition" -H "Authorization: Bearer $MOHAN" \
+    -H 'Content-Type: application/json' -d '{"to":"awaiting_approval","version":2}'
+  echo "$id 3"
 }
 
 read -r ID V <<< "$(next_waiting)"

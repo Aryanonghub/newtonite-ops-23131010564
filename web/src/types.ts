@@ -14,6 +14,8 @@ export interface Item {
   assignee_name: string | null;
   created_by: number;
   created_by_name: string;
+  submitted_by: number | null;
+  submitted_by_name: string | null;
   due_date: string | null;
   version: number;
   created_at: string;

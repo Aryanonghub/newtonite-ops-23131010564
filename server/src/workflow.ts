@@ -17,8 +17,10 @@ export function isApproval(from: Status, to: Status): boolean {
   return from === 'awaiting_approval' && to === 'resolved';
 }
 
-// Throws 422 for a move that is not in the map, and 403 if a non-Lead tries to approve.
-export function checkTransition(user: AuthUser, item: { status: Status; team_id: number }, to: Status) {
+// Throws 422 for a move that is not in the map, and 403 if a non-Lead (or the submitter) tries to approve.
+export function checkTransition(
+  user: AuthUser, item: { status: Status; team_id: number; submitted_by: number | null }, to: Status,
+) {
   if (!TRANSITIONS[item.status].includes(to)) {
     const hint = item.status === 'open' ? ' (claim the item to start work)' : '';
     throw new HttpError(422, `Cannot move from ${item.status} to ${to}${hint}`);

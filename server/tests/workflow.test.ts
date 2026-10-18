@@ -95,6 +95,52 @@ describe('workflow', () => {
     expect(await dbItem(item.id)).toMatchObject({ status: 'closed', version: 5 });
   });
 
+  it('four-eyes: a Lead cannot approve an item they submitted; another Lead can', async () => {
+    const item = await createItem(f.lee, f.payments);
+    await api().post(`/items/${item.id}/claim`).set(auth(f.lee.token)).expect(200);
+    await transition(f.lee, item.id, 'awaiting_approval', 2).expect(200);
+    expect((await dbItem(item.id)).submitted_by).toBe(f.lee.id);
+
+    const res = await transition(f.lee, item.id, 'resolved', 3);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/someone else must approve/);
+    expect(await dbItem(item.id)).toMatchObject({ status: 'awaiting_approval', version: 3 });
+
+    await transition(f.ada, item.id, 'resolved', 3).expect(200);
+    expect(await dbItem(item.id)).toMatchObject({ status: 'resolved', submitted_by: null });
+  });
+
+  it('four-eyes applies to Admins too', async () => {
+    const item = await createItem(f.ada, f.payments);
+    await api().post(`/items/${item.id}/claim`).set(auth(f.ada.token)).expect(200);
+    await transition(f.ada, item.id, 'awaiting_approval', 2).expect(200);
+
+    await transition(f.ada, item.id, 'resolved', 3).expect(403);
+  });
+
+  it('four-eyes: my own submissions are not in my "awaiting my approval" list', async () => {
+    const mine = await createItem(f.lee, f.payments);
+    await api().post(`/items/${mine.id}/claim`).set(auth(f.lee.token)).expect(200);
+    await transition(f.lee, mine.id, 'awaiting_approval', 2).expect(200);
+    const theirs = await awaitingApproval(); // submitted by Alice
+
+    const dash = await api().get('/dashboard').set(auth(f.lee.token)).expect(200);
+
+    expect(dash.body.awaitingMyApproval.map((i: { id: number }) => i.id)).toEqual([theirs.id]);
+  });
+
+  it('sending back clears the submitter, so whoever resubmits is the new submitter', async () => {
+    const item = await awaitingApproval(); // Alice submitted
+    await transition(f.lee, item.id, 'in_progress', 3).expect(200);
+    expect((await dbItem(item.id)).submitted_by).toBeNull();
+
+    await transition(f.lee, item.id, 'awaiting_approval', 4).expect(200);
+
+    await transition(f.lee, item.id, 'resolved', 5).expect(403); // Lee submitted this time
+    await transition(f.ada, item.id, 'resolved', 5).expect(200);
+  });
+
   it('a Viewer cannot move items', async () => {
     const item = await createItem(f.alice, f.payments);
     await api().post(`/items/${item.id}/claim`).set(auth(f.alice.token)).expect(200);

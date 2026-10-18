@@ -27,18 +27,27 @@ const MIN_ROLE: Record<Action, Role> = {
 
 // THE permission check. Every endpoint uses it. It only looks at the user's role
 // in the item's own team, so being a Lead in Payments gives no rights in Support.
-export function can(user: AuthUser, action: Action, item: { team_id: number }): boolean {
+// What can() needs to know about an item. submitted_by matters only for 'approve'.
+type PermissionItem = { team_id: number; submitted_by?: number | null };
+
+// The four-eyes rule also lives here: whoever submitted an item for approval cannot approve it,
+// whatever their role (an Admin included).
+export function can(user: AuthUser, action: Action, item: PermissionItem): boolean {
   const role = user.roles[item.team_id];
   if (!role) return false;
+  if (action === 'approve' && item.submitted_by === user.id) return false;
   return RANK[role] >= RANK[MIN_ROLE[action]];
 }
 
 // Throwing version for route handlers.
 // Not in the team at all -> 404, so outsiders cannot even learn the item exists.
-// In the team but role too low -> 403 with a reason the UI can show.
-export function authorize(user: AuthUser, action: Action, item: { team_id: number }): void {
+// In the team but not allowed -> 403 with a reason the UI can show.
+export function authorize(user: AuthUser, action: Action, item: PermissionItem): void {
   if (!user.roles[item.team_id]) throw new HttpError(404, 'Not found');
   if (!can(user, action, item)) {
+    if (action === 'approve' && item.submitted_by === user.id) {
+      throw new HttpError(403, 'You submitted this item for approval, so someone else must approve it');
+    }
     throw new HttpError(403, `Your role in this team (${user.roles[item.team_id]}) cannot ${action} items`);
   }
 }

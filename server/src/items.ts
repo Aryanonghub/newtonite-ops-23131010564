@@ -19,6 +19,8 @@ export interface Item {
   assignee_name: string | null;
   created_by: number;
   created_by_name: string;
+  submitted_by: number | null; // who moved it to Awaiting Approval (set only in that status)
+  submitted_by_name: string | null;
   due_date: string | null;
   version: number;
   created_at: Date;
@@ -29,11 +31,13 @@ export interface Item {
 export const ITEM_SELECT = `
   SELECT w.id, w.title, w.description, w.type, w.priority, w.status,
          w.team_id, t.name AS team_name, w.assignee_id, a.name AS assignee_name,
-         w.created_by, c.name AS created_by_name, w.due_date, w.version, w.created_at, w.updated_at
+         w.created_by, c.name AS created_by_name, w.submitted_by, s.name AS submitted_by_name,
+         w.due_date, w.version, w.created_at, w.updated_at
     FROM work_items w
     JOIN teams t ON t.id = w.team_id
     LEFT JOIN users a ON a.id = w.assignee_id
-    JOIN users c ON c.id = w.created_by`;
+    JOIN users c ON c.id = w.created_by
+    LEFT JOIN users s ON s.id = w.submitted_by`;
 
 export async function fetchItem(db: Db, id: number): Promise<Item | null> {
   const { rows } = await db.query(`${ITEM_SELECT} WHERE w.id = $1`, [id]);

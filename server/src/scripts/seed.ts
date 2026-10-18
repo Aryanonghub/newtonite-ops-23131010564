@@ -93,7 +93,7 @@ async function insertData(client: PoolClient) {
   // Build items and their history in memory, then bulk insert with unnest() (one query per table).
   const items = { id: [] as number[], title: [] as string[], description: [] as string[], type: [] as string[],
     priority: [] as string[], status: [] as string[], team_id: [] as number[], assignee_id: [] as (number | null)[],
-    created_by: [] as number[], due_date: [] as (string | null)[], version: [] as number[],
+    created_by: [] as number[], submitted_by: [] as (number | null)[], due_date: [] as (string | null)[], version: [] as number[],
     created_at: [] as string[], updated_at: [] as string[] };
   const events = { item_id: [] as number[], actor_id: [] as number[], kind: [] as string[],
     from_value: [] as (string | null)[], to_value: [] as (string | null)[], created_at: [] as string[] };
@@ -125,7 +125,9 @@ async function insertData(client: PoolClient) {
         actor = assignee;
         addEvent(id, actor, 'assignee_changed', null, String(assignee), t);
       } else if (STATUSES[s] === 'resolved') {
-        actor = pick(approvers[teamId]); // only Lead/Admin may approve
+        // Only Lead/Admin may approve, and never the one who submitted (four-eyes).
+        // The Admin is in every team, so there is always someone else.
+        actor = pick(approvers[teamId].filter((a) => a !== assignee));
       } else {
         actor = assignee!;
       }
@@ -142,6 +144,7 @@ async function insertData(client: PoolClient) {
     items.team_id.push(teamId);
     items.assignee_id.push(assignee);
     items.created_by.push(creator);
+    items.submitted_by.push(STATUSES[finalStatus] === 'awaiting_approval' ? assignee : null);
     items.due_date.push(Math.random() < 0.5 ? new Date(createdAt + (1 + Math.random() * 14) * 24 * HOUR).toISOString().slice(0, 10) : null);
     items.version.push(version);
     items.created_at.push(new Date(createdAt).toISOString());
@@ -150,11 +153,12 @@ async function insertData(client: PoolClient) {
 
   await client.query(
     `INSERT INTO work_items (id, title, description, type, priority, status, team_id, assignee_id,
-                             created_by, due_date, version, created_at, updated_at)
+                             created_by, submitted_by, due_date, version, created_at, updated_at)
      SELECT * FROM unnest($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::int[],
-                          $8::int[], $9::int[], $10::date[], $11::int[], $12::timestamptz[], $13::timestamptz[])`,
+                          $8::int[], $9::int[], $10::int[], $11::date[], $12::int[], $13::timestamptz[], $14::timestamptz[])`,
     [items.id, items.title, items.description, items.type, items.priority, items.status, items.team_id,
-      items.assignee_id, items.created_by, items.due_date, items.version, items.created_at, items.updated_at],
+      items.assignee_id, items.created_by, items.submitted_by, items.due_date, items.version, items.created_at,
+      items.updated_at],
   );
   // We inserted explicit ids, so move the id counter past them for future inserts.
   await client.query(`SELECT setval(pg_get_serial_sequence('work_items', 'id'), (SELECT max(id) FROM work_items))`);
