@@ -93,7 +93,7 @@ The tests run against a separate `ops_test` database in the same Postgres contai
 docker compose up -d db        # Postgres must be running
 cd server
 npm ci
-npm test                       # 75 tests, about 15 seconds
+npm test                       # 76 tests, about 15 seconds
 ```
 
 The tests never touch the demo data. They refuse to run against any database whose name doesn't end in `_test`.
@@ -106,7 +106,7 @@ The tests never touch the demo data. They refuse to run against any database who
 | `workflow.test.ts` | Open → Closed rejected (422); Member approval rejected (403); Lead/Admin approval allowed; the submitter can't approve their own item, even as Lead/Admin (four-eyes); a second approver gets 409 (not a workflow error); full path recorded in order |
 | `authorization.test.ts` | User from another team → 404 on every read and write; lists/dashboard scoped to own teams; Viewer read-only |
 | `outbox.test.ts` | Job written in the same transaction; job processed twice → one notification; failing job retries with backoff then `failed`; two workers never run the same job |
-| `list.test.ts` | Cursor pagination never skips or repeats rows (even with identical timestamps); filters; full-text search (description words, any word order, word forms, `"phrase"`, `-exclude`), partial title match, scoped to own teams |
+| `list.test.ts` | Cursor pagination never skips or repeats rows (even with identical timestamps); filters; full-text search (description words, any word order, word forms, `"phrase"`, `-exclude`), partial title match, search by `#id`, scoped to own teams |
 | `activity.test.ts` | History is append-only (DB rejects UPDATE/DELETE); a rejected write leaves no history |
 | `auth.test.ts` | Login works; wrong password and unknown email look the same; after 5 failures → 429 with `Retry-After` (per email, case-insensitive, reset by a success) |
 | `live.test.ts` | The live stream sends `change` when someone claims or comments, nothing otherwise, ends after its time limit, and is 404 outside the team |

@@ -116,7 +116,7 @@ export function ItemsPage() {
           <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', color: 'primary.main', fontWeight: 600, px: 1 }}>
             <span>Filters</span><TuneRounded fontSize="small" />
           </Stack>
-          <TextField size="small" placeholder='Search, e.g. refund failed, "card declined"' value={search}
+          <TextField size="small" placeholder='Search by words or #ID, e.g. refund failed, #20013' value={search}
             onChange={(e) => setSearch(e.target.value)} sx={{ flex: '1 1 260px' }}
             slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchRounded fontSize="small" /></InputAdornment> } }} />
           {select('status', 'Status', STATUSES.map((s) => [s, label(s)]))}

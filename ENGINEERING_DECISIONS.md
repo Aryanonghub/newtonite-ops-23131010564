@@ -73,7 +73,7 @@ Each decision: what I chose, why, what I rejected, and what it costs.
 
 ## Testing
 
-**75 server tests** against real Postgres (they refuse any DB not ending in `_test`) and **4 Playwright tests**: optimistic update, rollback on 409 and on 403, live update. CI runs type checks and the server tests on every push. The race scripts (`scripts/race-*.sh`) show the 200/409 split by hand.
+**76 server tests** against real Postgres (they refuse any DB not ending in `_test`) and **4 Playwright tests**: optimistic update, rollback on 409 and on 403, live update. CI runs type checks and the server tests on every push. The race scripts (`scripts/race-*.sh`) show the 200/409 split by hand.
 
 ## Known limitations
 
