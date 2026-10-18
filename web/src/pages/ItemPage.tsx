@@ -1,5 +1,6 @@
 import {
-  Alert, Button, Divider, List, ListItem, ListItemText, MenuItem, Paper, Stack, TextField, Typography,
+  Alert, Avatar, Box, Button, Divider, MenuItem, Paper, Snackbar, Stack, Step, StepLabel, Stepper, TextField,
+  Typography,
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -7,13 +8,15 @@ import { useParams } from 'react-router';
 import { ApiError, api } from '../api';
 import { useMe } from '../App';
 import { PriorityChip, StatusChip } from '../components';
-import { PRIORITIES, label, type ActivityEvent, type Item } from '../types';
-import { ACTIONS, atLeast, roleIn } from '../workflow';
+import { PRIORITIES, STATUSES, label, timeAgo, type ActivityEvent, type Item } from '../types';
+import { ACTIONS, atLeast, nextStep, roleIn } from '../workflow';
 
-// A write = the request to send + what the item should look like if it succeeds.
+// A write = the request to send, what the item should look like if it succeeds,
+// and the message to show when the server confirms it.
 interface Change {
   request: () => Promise<Item>;
   optimistic: Partial<Item>;
+  success: string;
 }
 
 export function ItemPage() {
@@ -30,6 +33,7 @@ export function ItemPage() {
   });
 
   const [error, setError] = useState<ApiError | null>(null);
+  const [toast, setToast] = useState<string | null>(null); // success popup
   const [draft, setDraft] = useState<null | { title: string; description: string; priority: string; due_date: string; version: number }>(null);
 
   // Every item write (claim, transition, edit) goes through this one optimistic mutation.
@@ -46,7 +50,10 @@ export function ItemPage() {
       if (context?.previous) queryClient.setQueryData(itemKey, context.previous); // roll back
       setError(err as ApiError); // show the server's reason (409 / 403 / 422)
     },
-    onSuccess: (item) => queryClient.setQueryData(itemKey, item), // the server's version wins
+    onSuccess: (item, c) => {
+      queryClient.setQueryData(itemKey, item); // the server's version wins
+      setToast(c.success); // only after the server confirmed, never on the optimistic guess
+    },
     onSettled: () => {
       for (const key of ['activity', 'items', 'dashboard', 'notifications']) {
         queryClient.invalidateQueries({ queryKey: [key] });
@@ -56,7 +63,10 @@ export function ItemPage() {
 
   const comment = useMutation({
     mutationFn: (body: string) => api(`/items/${id}/comments`, { method: 'POST', body: { body } }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['activity', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activity', id] });
+      setToast('Comment added');
+    },
   });
   const [commentText, setCommentText] = useState('');
 
@@ -75,10 +85,12 @@ export function ItemPage() {
   const claim = () => change.mutate({
     request: () => api<Item>(`/items/${id}/claim`, { method: 'POST' }),
     optimistic: { assignee_id: me.id, assignee_name: me.name, status: 'in_progress' },
+    success: 'You claimed this item',
   });
-  const transition = (to: Item['status']) => change.mutate({
+  const transition = (to: Item['status'], success: string) => change.mutate({
     request: () => api<Item>(`/items/${id}/transition`, { method: 'POST', body: { to, version: item.version } }),
     optimistic: { status: to },
+    success,
   });
   const saveEdit = () => {
     if (!draft) return;
@@ -87,7 +99,11 @@ export function ItemPage() {
     change.mutate(
       // `version` is the one we had when editing started, not the latest polled one.
       // So if someone else saved meanwhile, the server says 409 instead of silently overwriting them.
-      { request: () => api<Item>(`/items/${id}`, { method: 'PATCH', body: { version, ...body } }), optimistic: body },
+      {
+        request: () => api<Item>(`/items/${id}`, { method: 'PATCH', body: { version, ...body } }),
+        optimistic: body,
+        success: 'Changes saved',
+      },
       { onSuccess: () => setDraft(null) },
     );
   };
@@ -129,6 +145,7 @@ export function ItemPage() {
                 created by {item.created_by_name} · due: {item.due_date ?? '—'} · v{item.version}
               </Typography>
             </Stack>
+            <WorkflowSteps status={item.status} />
             <Typography sx={{ whiteSpace: 'pre-wrap', my: 2 }}>{item.description || 'No description.'}</Typography>
 
             <Stack direction="row" spacing={1}>
@@ -136,7 +153,7 @@ export function ItemPage() {
                 <Button variant="contained" onClick={claim} disabled={change.isPending}>Claim</Button>
               )}
               {ACTIONS[item.status].filter((a) => atLeast(role, a.minRole)).map((a) => (
-                <Button key={a.to} variant="outlined" onClick={() => transition(a.to)} disabled={change.isPending}>
+                <Button key={a.to} variant="outlined" onClick={() => transition(a.to, a.done)} disabled={change.isPending}>
                   {a.label}
                 </Button>
               ))}
@@ -147,19 +164,16 @@ export function ItemPage() {
                 })}>Edit</Button>
               )}
             </Stack>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+              {nextStep(item.status, role, item.team_name)}
+            </Typography>
           </>
         )}
       </Paper>
 
       <Paper sx={{ p: 3 }}>
-        <Typography variant="h6">Activity</Typography>
-        <List dense>
-          {activity.data?.events.map((e) => (
-            <ListItem key={e.id} disableGutters>
-              <ListItemText primary={`${e.actor_name} ${describe(e)}`} secondary={new Date(e.created_at).toLocaleString()} />
-            </ListItem>
-          ))}
-        </List>
+        <Typography variant="h6" sx={{ mb: 2 }}>Activity</Typography>
+        <Timeline events={activity.data?.events ?? []} />
         {atLeast(role, 'member') && (
           <>
             <Divider sx={{ my: 2 }} />
@@ -175,6 +189,68 @@ export function ItemPage() {
           </>
         )}
       </Paper>
+
+      <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity="success" variant="filled" onClose={() => setToast(null)}>{toast}</Alert>
+      </Snackbar>
+    </Stack>
+  );
+}
+
+// Step bar: where the item is in the workflow. Steps before the current one show as done.
+function WorkflowSteps({ status }: { status: Item['status'] }) {
+  const current = STATUSES.indexOf(status);
+  // Closed is the last step, so mark it done too instead of "in progress".
+  const activeStep = status === 'closed' ? STATUSES.length : current;
+  return (
+    <Stepper activeStep={activeStep} alternativeLabel sx={{ my: 3 }}>
+      {STATUSES.map((s) => (
+        <Step key={s}>
+          <StepLabel sx={{ textTransform: 'capitalize' }}>{label(s)}</StepLabel>
+        </Step>
+      ))}
+    </Stepper>
+  );
+}
+
+// One colour per kind of event, used for the avatar dot.
+const KIND_COLOR: Record<string, string> = {
+  created: '#1976d2',
+  status_changed: '#9c27b0',
+  assignee_changed: '#2e7d32',
+  priority_changed: '#ed6c02',
+  edited: '#757575',
+  commented: '#0288d1',
+};
+
+// Vertical timeline: avatar with the actor's initial, a line joining events, comments as bubbles.
+function Timeline({ events }: { events: ActivityEvent[] }) {
+  if (events.length === 0) return <Typography color="text.secondary">No activity yet.</Typography>;
+  return (
+    <Stack>
+      {events.map((e, i) => (
+        <Stack key={e.id} direction="row" spacing={2}>
+          <Stack sx={{ alignItems: 'center' }}>
+            <Avatar sx={{ width: 32, height: 32, fontSize: 14, bgcolor: KIND_COLOR[e.kind] ?? 'grey.500' }}>
+              {e.actor_name.charAt(0)}
+            </Avatar>
+            {i < events.length - 1 && <Box sx={{ flexGrow: 1, width: 2, bgcolor: 'divider', my: 0.5 }} />}
+          </Stack>
+          <Box sx={{ pb: 2.5, flexGrow: 1, minWidth: 0 }}>
+            <Typography variant="body2"><b>{e.actor_name}</b> {describe(e)}</Typography>
+            {/* Hover shows the exact date and time. */}
+            <Typography variant="caption" color="text.secondary" title={new Date(e.created_at).toLocaleString()}>
+              {timeAgo(e.created_at)}
+            </Typography>
+            {e.kind === 'commented' && (
+              <Paper variant="outlined" sx={{ p: 1.5, mt: 0.5, bgcolor: 'grey.50', whiteSpace: 'pre-wrap' }}>
+                {e.comment}
+              </Paper>
+            )}
+          </Box>
+        </Stack>
+      ))}
     </Stack>
   );
 }
@@ -186,7 +262,7 @@ function describe(e: ActivityEvent): string {
     case 'assignee_changed': return `assigned it to ${e.to_name ?? 'nobody'}`;
     case 'priority_changed': return `changed priority from ${e.from_value} to ${e.to_value}`;
     case 'edited': return `edited the ${label(e.field ?? 'item')}`;
-    case 'commented': return `commented: "${e.comment}"`;
+    case 'commented': return 'commented'; // the text is shown in a bubble below
     default: return e.kind;
   }
 }
