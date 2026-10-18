@@ -37,15 +37,37 @@ Use separate browsers for two people (e.g. Chrome and Safari; incognito windows 
 | **Background work** | Transactional outbox; worker uses `SKIP LOCKED`, retries with backoff, gives up after 5; idempotent handler | Mohan claims Ada's item → Ada's bell shows it | `outbox.test.ts` |
 | **UI ahead of the server** | Optimistic update, **rolled back** on 409/403 with the server's reason; success shown only once confirmed. Live updates refresh an open item within ~2 s | Lose a claim race → the page rolls back | Playwright `web/e2e/` |
 
-The "same key twice" check from the terminal:
+## Verify with curl
+
+Each check creates its own ticket, so it never depends on the shared demo data. Set the helpers once
+(bash or zsh), then run any check. Use `http://localhost:8088/api` for a local copy.
 
 ```bash
 API=https://newtonite-ops-opal.vercel.app/api
-T=$(curl -s -X POST $API/auth/login -H 'Content-Type: application/json' -d '{"email":"mohan@ops.test","password":"password123"}' | sed 's/.*"token":"\([^"]*\)".*/\1/')
-K=demo-$(date +%s)                                   # one key, sent twice
-for i in 1 2; do curl -s -D - -X POST $API/items -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $K" -d '{"title":"Double click","type":"task","priority":"low","team_id":1}' | grep -iE '^HTTP|replayed|"id"'; done
+login()    { curl -s -X POST $API/auth/login -H 'Content-Type: application/json' \
+               -d "{\"email\":\"$1@ops.test\",\"password\":\"password123\"}" | sed -E 's/.*"token":"([^"]+)".*/\1/'; }
+call()     { curl -s -w '  -> HTTP %{http_code}\n' -X "$2" "$API$3" -H "Authorization: Bearer $(login $1)" \
+               -H 'Content-Type: application/json' -d "${4:-}"; }     # call <user> <METHOD> <path> [json]
+new_item() { curl -s -X POST $API/items -H "Authorization: Bearer $(login mohan)" -H 'Content-Type: application/json' \
+               -H "Idempotency-Key: $(uuidgen)" -d '{"title":"curl check","type":"task","priority":"low","team_id":1}' \
+               | sed -E 's/^\{"id":([0-9]+).*/\1/'; }                 # a fresh Payments ticket; prints its id
 ```
+
+| # | Check | Command | Expected |
+|---|---|---|---|
+| 1 | Claim race | `API=$API ./scripts/race-claim.sh` | one `200`, one `409` |
+| 2 | Approval race | `API=$API ./scripts/race-approve.sh` | one `200`, one `409`, twice |
+| 3 | Stale version | `ID=$(new_item); call sara POST /items/$ID/claim >/dev/null; call mohan PATCH /items/$ID '{"version":1,"title":"x"}'` | `409` *"Sara … moved it to in progress since you loaded this item."* |
+| 4 | Same request twice | `K=$(uuidgen); for i in 1 2; do curl -s -D - -X POST $API/items -H "Authorization: Bearer $(login mohan)" -H 'Content-Type: application/json' -H "Idempotency-Key: $K" -d '{"title":"Double click","type":"task","priority":"low","team_id":1}' \| grep -iE '^HTTP\|replayed\|"id"'; done` | `201` twice, **same id**, second has `idempotent-replayed: true` |
+| 5 | Invalid move | `ID=$(new_item); call priya POST /items/$ID/transition '{"to":"closed","version":1}'` | `422` *"Cannot move from open to closed"* |
+| 6 | Member cannot approve | `ID=$(new_item); call sara POST /items/$ID/claim >/dev/null; call priya POST /items/$ID/transition '{"to":"awaiting_approval","version":2}' >/dev/null; call sara POST /items/$ID/transition '{"to":"resolved","version":3}'` | `403` *"Your role in this team (member) cannot approve items"* |
+| 7 | Four-eyes | `ID=$(new_item); call priya POST /items/$ID/claim >/dev/null; call priya POST /items/$ID/transition '{"to":"awaiting_approval","version":2}' >/dev/null; call priya POST /items/$ID/transition '{"to":"resolved","version":3}'; call admin POST /items/$ID/transition '{"to":"resolved","version":3}'` | Priya `403` *"…someone else must approve it"*, then Admin `200` |
+| 8 | Ownership | `ID=$(new_item); call sara POST /items/$ID/claim >/dev/null; call mohan POST /items/$ID/transition '{"to":"awaiting_approval","version":2}'` | `403` *"Only the assignee or a Lead can move this item"* |
+| 9 | Outside the team | `ID=$(new_item); call lena GET /items/$ID` | `404` |
+| 10 | Read-only role | `ID=$(new_item); call vik POST /items/$ID/claim` | `403` *"…(viewer) cannot claim items"* |
+| 11 | Login rate limit | `E=$(uuidgen)@ops.test; for i in 1 2 3 4 5 6; do curl -s -o /dev/null -w '%{http_code} ' -X POST $API/auth/login -H 'Content-Type: application/json' -d "{\"email\":\"$E\",\"password\":\"wrong\"}"; done` | `401` ×5, then `429` |
+| 12 | Request id | `curl -s -D - -o /dev/null $API/health \| grep -i x-request-id` | `x-request-id: <uuid>` |
+| 13 | Live updates | Terminal A: `ID=$(new_item); echo $ID; curl -N $API/items/$ID/live -H "Authorization: Bearer $(login priya)"`<br>Terminal B (helpers set, same `ID`): `call sara POST /items/$ID/claim` | Terminal A prints `event: change` within about 2 s |
 
 ## Tests
 
