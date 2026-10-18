@@ -104,7 +104,7 @@ nobody in another.
 **Trade-off.** One extra indexed query per request to load roles. A ranked list can't express "Viewers may
 comment but not claim"; that would need option 3. For four roles, a 7-line table is easier to read and audit.
 
-## 4. Idempotency for creating items
+## 4. Idempotency for creating items (and other writes)
 
 **Context.** A double-clicked button or a retry after a network timeout must not create two items.
 
@@ -124,6 +124,13 @@ comment but not claim"; that would need option 3. For four roles, a 7-line table
 - If the request fails (e.g. 403), the rollback also removes the key, so a failed attempt doesn't use it up.
 
 The frontend creates one key per "New item" dialog.
+
+**Extended to claim, transition and comments** with the same helper (`withIdempotency`), where the key is
+optional so older clients keep working. This closes the worst retry case: a transition succeeds but the
+reply is lost, and the retry used to get a 409 (its `version` is now stale) for something that worked. The
+key is checked *before* the version check, so the retry gets the original 200. The fingerprint includes the
+action and item id, so reusing a key for a different action gets 422. The UI makes one key per click and
+retries only network failures (never a 403/409/422), reusing that click's key.
 
 **Trade-off.** Keys never expire (see limitations). It only covers create. Claim and transition are already
 safe to retry, because their conditional updates can't apply twice. A retried transition after a lost response
@@ -184,7 +191,21 @@ insert, but a slow external call (email API) should instead mark the job "proces
     Full-text only matches whole words.
 
   Postgres combines both indexes in one plan (`BitmapOr`): about 7 ms on 20,000 items.
-- Measured with `EXPLAIN ANALYZE` on the 20,000 seeded items: list and dashboard queries run in under 4 ms.
+- **Measured** with `npm run explain` (`server/src/scripts/explain.ts`), which runs `EXPLAIN (ANALYZE, BUFFERS)`
+  on the hot queries and prints which indexes were used. On the 20,000 seeded items, warm cache:
+
+  | Query | Lead, 1 team | Admin, 4 teams |
+  |---|---|---|
+  | List, first page | 6.7 ms · `team_created_idx` | 18.9 ms · **Seq Scan** |
+  | List, page after a cursor | 5.6 ms · pkey + `team_created_idx` | 19.9 ms · same |
+  | Status filter | 1.7 ms · `team_status_idx` | 5.1 ms · `team_status_idx` |
+  | Full-text search | 1.9 ms · `search_idx` + `title_trgm_idx` | 2.2 ms · same |
+  | Dashboard: assigned to me | 1.8 ms · `assignee_idx` | 0.04 ms · `assignee_idx` |
+  | Dashboard: unassigned urgent | 0.5 ms · partial `unassigned_urgent_idx` | 1.4 ms · same |
+  | Stats (counts by status) | 2.4 ms · `team_created_idx` | 4.6 ms · Seq Scan |
+
+  The Seq Scans are the multi-team case from the trade-off below: for the Admin, who sees every row,
+  reading the whole table is actually Postgres's cheapest plan at this size.
 
 **Trade-off.**
 - There's no "jump to page 37" and no total count. Counting is expensive at scale; the dashboard says
@@ -195,14 +216,20 @@ insert, but a slow external call (email API) should instead mark the job "proces
 
 ## 7. What I chose not to build
 
-- **Websockets.** Polling every 10–15 s (plus refetch on window focus) is enough for an internal tool and has
-  no connection state to manage. The item page shows the latest version, and any conflict is caught by the version check anyway.
+- **Websockets.** The open item page gets **live updates** over a streamed HTTP response instead
+  (`GET /items/:id/live`, `text/event-stream`): simpler than websockets, works through nginx and on Vercel.
+  The server checks the item's version and newest history event every 1.5 s and sends `change`; the client
+  refetches through the normal, permission-checked endpoints, so the stream carries no data. It is read with
+  `fetch` (not `EventSource`, which can't send the `Authorization` header), ends after 25 s (Vercel's function
+  limit), and reconnects. Polling every 10 s stays as a fallback. LISTEN/NOTIFY would avoid the polling, but
+  needs one long-lived connection per stream, which Neon's pooler doesn't support. Lists and the dashboard
+  still poll every 15 s.
 - **Reassign / unassign, SLAs, attachments, email, SSO, sign-up, mobile.** Out of scope per the brief.
   Reassignment would be a new `assign` action (Lead+) using the same conditional-update pattern.
 - **An ORM.** Plain SQL with `pg`, so every concurrency-critical statement is visible and reviewable. Validation uses `zod`.
 - **A migration library.** A 40-line runner applies `migrations/*.sql` in order, each in a transaction, with
   an advisory lock so two containers can't migrate at once.
-- **A full frontend test suite.** Three Playwright tests cover what matters most in the UI: the optimistic
+- **A full frontend test suite.** Four Playwright tests cover what matters most in the UI: live updates, the optimistic
   update, the rollback on 409 (two real browser logins) and on 403, and that no false success message
   appears. Everything else was checked by hand. Most of the testing time went into server-side tests,
   where the correctness rules live.
@@ -212,9 +239,9 @@ insert, but a slow external call (email API) should instead mark the job "proces
 ## Known limitations
 
 - **Idempotency keys never expire.** The table grows forever; it needs a scheduled cleanup (e.g. delete keys older than 24 h).
-- Idempotency covers only `POST /items`. A retried transition whose first response was lost returns 409 instead of the original success.
+- `PATCH` takes no idempotency key: its `version` check prevents a double save, but a retry after a lost reply gets a 409.
 - No reassign/unassign; an item's owner can only change by claiming it while Open.
-- JWT in `localStorage` (readable by any injected script), 8-hour expiry, no refresh token, no revocation list, no login rate limiting.
+- JWT in `localStorage` (readable by any injected script), 8-hour expiry, no refresh token, no revocation list. Login is rate-limited per email (5 failures per 15 min, stored in Postgres so it holds across instances), not per IP.
 - Search results are sorted newest first, not by relevance. Ranking (`ts_rank`) would need a different cursor,
   because keyset pagination needs a stable sort order. English stemming only; no typo tolerance.
 - `GET /items/:id/activity` returns the whole history without pagination.
@@ -232,15 +259,15 @@ insert, but a slow external call (email API) should instead mark the job "proces
 3. Extend the Playwright tests to the main pages (create, filters, comments) and run them in CI too (today CI runs the type checks and server tests on every push).
 4. Paginate the activity endpoint and add read/unread notifications.
 5. Make multi-team list queries index-friendly (one query per team, merged), then load-test with 1M items and `EXPLAIN ANALYZE`.
-6. Harden auth: httpOnly cookie instead of `localStorage`, short-lived tokens with refresh, login rate limiting.
-7. Add structured logs with a request id and basic metrics (request latency, 409 rate, outbox lag).
+6. Harden auth: httpOnly cookie instead of `localStorage`, short-lived tokens with refresh, per-IP limits as well as per-email.
+7. Add metrics on top of the structured logs (every request is already one JSON line with a request id): request latency, 409 rate, outbox lag.
 
 ## At 10× scale
 
 - Partition `activity_events` by month (it grows fastest), and add read replicas for list and dashboard reads.
 - Move search to OpenSearch if relevance ranking and typo tolerance are needed. Postgres full-text search is fine until then.
 - Feed a dedicated queue from the outbox if job volume or slow handlers outgrow polling.
-- Replace polling with server-sent events or websockets for the item page.
+- Move live updates from per-stream polling to LISTEN/NOTIFY (or a pub/sub service) once there are many viewers.
 
 ## References
 

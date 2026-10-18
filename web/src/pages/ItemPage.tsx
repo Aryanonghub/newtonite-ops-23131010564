@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { ApiError, api } from '../api';
 import { useMe } from '../App';
+import { useLiveUpdates } from '../live';
 import { DetailGrid, DueDate, Person, PersonAvatar, PriorityChip, StatusChip } from '../components';
 import { PANEL_BG } from '../theme';
 import { PRIORITIES, STATUSES, label, timeAgo, type ActivityEvent, type Item } from '../types';
@@ -43,6 +44,10 @@ export function ItemPanel({ id, onClose }: { id: number; onClose: () => void }) 
   // Every item write (claim, transition, edit) goes through this one optimistic mutation.
   const change = useMutation({
     mutationFn: (c: Change) => c.request(),
+    // A network failure (no answer at all) is retried; the request reuses its Idempotency-Key, so if
+    // the first attempt did reach the server, the retry gets the stored answer instead of a 409.
+    // Answers from the server (403, 409, 422) are final and never retried.
+    retry: (count, err) => !(err instanceof ApiError) && count < 2,
     onMutate: async (c) => {
       setError(null);
       await queryClient.cancelQueries({ queryKey: itemKey }); // so a background poll can't overwrite our optimistic value
@@ -66,13 +71,25 @@ export function ItemPanel({ id, onClose }: { id: number; onClose: () => void }) 
   });
 
   const comment = useMutation({
-    mutationFn: (body: string) => api(`/items/${id}/comments`, { method: 'POST', body: { body } }),
+    // The key is made once per submit, so a network retry or a double click posts the comment once.
+    mutationFn: ({ body, key }: { body: string; key: string }) =>
+      api(`/items/${id}/comments`, { method: 'POST', body: { body }, headers: { 'Idempotency-Key': key } }),
+    retry: (count, err) => !(err instanceof ApiError) && count < 2,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity', id] });
       setToast('Comment added');
     },
   });
   const [commentText, setCommentText] = useState('');
+
+  // Someone else changed this item: refetch it and its history. Skipped while our own change is in
+  // flight, so the optimistic value isn't overwritten; that change refetches when it settles anyway.
+  // The 10 s polling above stays as a fallback in case the stream is down.
+  useLiveUpdates(`/items/${id}/live`, () => {
+    if (change.isPending) return;
+    queryClient.invalidateQueries({ queryKey: itemKey });
+    queryClient.invalidateQueries({ queryKey: ['activity', id] });
+  });
 
   const reload = () => {
     setError(null);
@@ -96,16 +113,24 @@ export function ItemPanel({ id, onClose }: { id: number; onClose: () => void }) 
 
   const role = roleIn(me, item.team_id);
   const submittedByMe = item.submitted_by === me.id;
-  const claim = () => change.mutate({
-    request: () => api<Item>(`/items/${id}/claim`, { method: 'POST' }),
-    optimistic: { assignee_id: me.id, assignee_name: me.name, status: 'in_progress' },
-    success: 'You claimed this item',
-  });
-  const transition = (to: Item['status'], success: string) => change.mutate({
-    request: () => api<Item>(`/items/${id}/transition`, { method: 'POST', body: { to, version: item.version } }),
-    optimistic: { status: to },
-    success,
-  });
+  // One key per click: retries of the same click share it, a new click gets a new one.
+  const keyHeader = () => ({ 'Idempotency-Key': crypto.randomUUID() });
+  const claim = () => {
+    const headers = keyHeader();
+    change.mutate({
+      request: () => api<Item>(`/items/${id}/claim`, { method: 'POST', headers }),
+      optimistic: { assignee_id: me.id, assignee_name: me.name, status: 'in_progress' },
+      success: 'You claimed this item',
+    });
+  };
+  const transition = (to: Item['status'], success: string) => {
+    const headers = keyHeader();
+    change.mutate({
+      request: () => api<Item>(`/items/${id}/transition`, { method: 'POST', body: { to, version: item.version }, headers }),
+      optimistic: { status: to },
+      success,
+    });
+  };
   const saveEdit = () => {
     if (!draft) return;
     const { version, ...fields } = draft;
@@ -193,7 +218,7 @@ export function ItemPanel({ id, onClose }: { id: number; onClose: () => void }) 
                 onChange={(e) => setCommentText(e.target.value)} slotProps={{ input: { disableUnderline: true } }} />
               <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
                 <Button variant="contained" size="small" disabled={!commentText.trim() || comment.isPending}
-                  onClick={() => comment.mutate(commentText, { onSuccess: () => setCommentText('') })}>
+                  onClick={() => comment.mutate({ body: commentText, key: crypto.randomUUID() }, { onSuccess: () => setCommentText('') })}>
                   Comment
                 </Button>
               </Stack>

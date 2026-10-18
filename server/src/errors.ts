@@ -1,4 +1,5 @@
 import type { ErrorRequestHandler } from 'express';
+import { log } from './logger';
 
 // Throw this anywhere in a handler to send a specific HTTP status.
 // `extra` lets us attach data, e.g. the latest item on a 409 Conflict.
@@ -9,7 +10,7 @@ export class HttpError extends Error {
 }
 
 // Express 5 passes errors from async handlers here automatically.
-export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof HttpError) {
     res.status(err.status).json({ error: err.message, ...err.extra });
     return;
@@ -18,6 +19,7 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     res.status(400).json({ error: 'Invalid JSON body' });
     return;
   }
-  console.error(err);
-  res.status(500).json({ error: 'Internal server error' }); // never leak internals to the client
+  log('error', 'unhandled error', { requestId: req.id, error: err instanceof Error ? err.message : String(err), stack: err?.stack });
+  // Never leak internals to the client. The request id lets someone report the error and us find the log line.
+  res.status(500).json({ error: 'Internal server error', requestId: req.id });
 };

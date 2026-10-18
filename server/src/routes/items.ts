@@ -1,10 +1,11 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import type { PoolClient } from 'pg';
 import { recordEvent } from '../activity';
 import { currentUser, requireAuth } from '../auth';
+import { config } from '../config';
 import { pool, withTransaction } from '../db';
 import { HttpError } from '../errors';
-import { claimIdempotencyKey, hashRequest, saveIdempotentResponse } from '../idempotency';
+import { hashRequest, readIdempotencyKey, withIdempotency, type StoredResponse } from '../idempotency';
 import {
   ITEM_SELECT, commentSchema, createItemSchema, decodeCursor, encodeCursor, fetchItem, listQuerySchema,
   parse, parseId, patchItemSchema, transitionSchema, type Item,
@@ -56,6 +57,12 @@ async function describeLastChange(client: PoolClient, id: number): Promise<strin
     what = `edited the ${label(e.field)}`;
   }
   return `${e.name} ${what} since you loaded this item.`;
+}
+
+// Sends a write's response, marking replays of an earlier request with the same Idempotency-Key.
+function send(res: Response, result: StoredResponse & { replayed: boolean }) {
+  if (result.replayed) res.setHeader('Idempotent-Replayed', 'true');
+  res.status(result.status).json(result.body);
 }
 
 // ---------- Reads ----------
@@ -154,6 +161,56 @@ itemsRouter.get('/:id', async (req, res) => {
   res.json(item);
 });
 
+// Live updates for one item, as a text/event-stream. It sends "change" whenever the item's version or
+// its newest history event moves (comments included). The event carries no item data: the client
+// refetches through the normal endpoints, which check permissions as usual. The stream ends after
+// liveStreamSeconds (Vercel limits how long a function runs) and the client reconnects.
+// Cost: one small indexed query per open stream every livePollMs. A LISTEN/NOTIFY design would avoid
+// polling, but it needs a long-lived connection per stream, which Neon's pooler does not support.
+itemsRouter.get('/:id/live', async (req, res) => {
+  const user = currentUser(req);
+  const id = parseId(req.params.id);
+  const item = await fetchItem(pool, id);
+  if (!item) throw new HttpError(404, 'Not found');
+  authorize(user, 'read', item);
+
+  const snapshot = async () => {
+    const { rows } = await pool.query(
+      `SELECT w.version, (SELECT max(e.id) FROM activity_events e WHERE e.item_id = w.id) AS last_event
+         FROM work_items w WHERE w.id = $1`,
+      [id],
+    );
+    return JSON.stringify(rows[0]);
+  };
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'X-Accel-Buffering': 'no', // tells nginx not to hold the events back
+  });
+  let closed = false;
+  req.on('close', () => { closed = true; });
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const endAt = Date.now() + config.liveStreamSeconds * 1000;
+  try {
+    let last = await snapshot();
+    res.write(': connected\n\n');
+    while (!closed && Date.now() < endAt) {
+      await sleep(config.livePollMs);
+      if (closed) break;
+      const now = await snapshot();
+      if (now !== last) {
+        last = now;
+        res.write(`event: change\ndata: ${now}\n\n`);
+      }
+    }
+  } catch {
+    // e.g. the database went away mid-stream: just end it; the client reconnects.
+  }
+  res.end();
+});
+
 itemsRouter.get('/:id/activity', async (req, res) => {
   const user = currentUser(req);
   const id = parseId(req.params.id);
@@ -182,14 +239,10 @@ itemsRouter.get('/:id/activity', async (req, res) => {
 
 itemsRouter.post('/', async (req, res) => {
   const user = currentUser(req);
-  const key = req.header('Idempotency-Key');
-  if (!key || key.length > 200) throw new HttpError(400, 'Idempotency-Key header is required (max 200 chars)');
+  const key = readIdempotencyKey(req.header('Idempotency-Key'), true);
   const input = parse(createItemSchema, req.body);
 
-  const result = await withTransaction(async (client) => {
-    const stored = await claimIdempotencyKey(client, user.id, key, hashRequest(input));
-    if (stored) return { ...stored, replayed: true };
-
+  const result = await withTransaction((client) => withIdempotency(client, user.id, key, hashRequest(input), async () => {
     authorize(user, 'create', { team_id: input.team_id });
 
     const { rows } = await client.query(
@@ -200,13 +253,9 @@ itemsRouter.post('/', async (req, res) => {
     const id = rows[0].id;
     await recordEvent(client, { itemId: id, actorId: user.id, kind: 'created', to: 'open' });
 
-    const response = { status: 201, body: await fetchItem(client, id) };
-    await saveIdempotentResponse(client, user.id, key, response);
-    return { ...response, replayed: false };
-  });
-
-  if (result.replayed) res.setHeader('Idempotent-Replayed', 'true');
-  res.status(result.status).json(result.body);
+    return { status: 201, body: await fetchItem(client, id) };
+  }));
+  send(res, result);
 });
 
 // Edit title / description / priority / due date. Optimistic locking with `version`.
@@ -251,8 +300,10 @@ itemsRouter.patch('/:id', async (req, res) => {
 itemsRouter.post('/:id/claim', async (req, res) => {
   const user = currentUser(req);
   const id = parseId(req.params.id);
+  const key = readIdempotencyKey(req.header('Idempotency-Key'), false);
 
-  const item = await withTransaction(async (client) => {
+  // With an Idempotency-Key, a retried claim whose first answer was lost gets that 200 again, not a 409.
+  const result = await withTransaction((client) => withIdempotency(client, user.id, key, hashRequest({ claim: id }), async () => {
     const before = await loadItem(client, id);
     authorize(user, 'claim', before);
 
@@ -273,9 +324,9 @@ itemsRouter.post('/:id/claim', async (req, res) => {
         userId: before.created_by, itemId: id, message: `${user.name} claimed "${before.title}"`,
       });
     }
-    return loadItem(client, id);
-  });
-  res.json(item);
+    return { status: 200, body: await loadItem(client, id) };
+  }));
+  send(res, result);
 });
 
 // Move along the workflow, e.g. In Progress -> Awaiting Approval -> Resolved -> Closed.
@@ -283,8 +334,11 @@ itemsRouter.post('/:id/transition', async (req, res) => {
   const user = currentUser(req);
   const id = parseId(req.params.id);
   const { to, version } = parse(transitionSchema, req.body);
+  const key = readIdempotencyKey(req.header('Idempotency-Key'), false);
 
-  const item = await withTransaction(async (client) => {
+  // The key is checked first, so a retry of a move that already succeeded replays its 200
+  // instead of failing the version check below with a 409.
+  const result = await withTransaction((client) => withIdempotency(client, user.id, key, hashRequest({ transition: id, to, version }), async () => {
     const before = await loadItem(client, id);
     authorize(user, 'transition', before);
     // Stale page? Say so before checking workflow rules. Otherwise a second approver would get
@@ -308,17 +362,19 @@ itemsRouter.post('/:id/transition', async (req, res) => {
         userId: before.assignee_id, itemId: id, message: `${user.name} moved "${before.title}" to ${to}`,
       });
     }
-    return loadItem(client, id);
-  });
-  res.json(item);
+    return { status: 200, body: await loadItem(client, id) };
+  }));
+  send(res, result);
 });
 
 itemsRouter.post('/:id/comments', async (req, res) => {
   const user = currentUser(req);
   const id = parseId(req.params.id);
   const { body } = parse(commentSchema, req.body);
+  const key = readIdempotencyKey(req.header('Idempotency-Key'), false);
 
-  const comment = await withTransaction(async (client) => {
+  // A double-clicked or retried comment is posted once.
+  const result = await withTransaction((client) => withIdempotency(client, user.id, key, hashRequest({ comment: id, body }), async () => {
     const item = await loadItem(client, id);
     authorize(user, 'comment', item);
     const { rows } = await client.query(
@@ -326,7 +382,7 @@ itemsRouter.post('/:id/comments', async (req, res) => {
       [id, user.id, body],
     );
     await recordEvent(client, { itemId: id, actorId: user.id, kind: 'commented', commentId: rows[0].id });
-    return rows[0];
-  });
-  res.status(201).json(comment);
+    return { status: 201, body: rows[0] };
+  }));
+  send(res, result);
 });

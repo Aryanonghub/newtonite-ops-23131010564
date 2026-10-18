@@ -1,6 +1,7 @@
 import { waitUntil } from '@vercel/functions';
 import express from 'express';
 import { createApp } from './app';
+import { log } from './logger';
 import { processNextJob } from './worker';
 
 // Entry point when deployed on Vercel (see vercel.json and api/index.js). Docker uses index.ts instead.
@@ -20,7 +21,7 @@ async function drainOutbox() {
 const app = express();
 app.use('/api', (req, res, next) => {
   if (req.method !== 'GET') {
-    res.on('finish', () => waitUntil(drainOutbox().catch((err) => console.error('outbox drain failed:', err))));
+    res.on('finish', () => waitUntil(drainOutbox().catch((err) => log('error', 'outbox drain failed', { error: String(err) }))));
   }
   next();
 });

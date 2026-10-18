@@ -46,3 +46,30 @@ export async function saveIdempotentResponse(
     [userId, key, response.status, JSON.stringify(response.body)],
   );
 }
+
+// Reads the Idempotency-Key header. Required on create; optional on the other writes, so older
+// clients keep working (without a key, a retry is treated as a new request).
+export function readIdempotencyKey(header: string | undefined, required: boolean): string | undefined {
+  if (header === undefined) {
+    if (required) throw new HttpError(400, 'Idempotency-Key header is required (max 200 chars)');
+    return undefined;
+  }
+  if (header.length === 0 || header.length > 200) throw new HttpError(400, 'Idempotency-Key must be 1 to 200 characters');
+  return header;
+}
+
+// Wraps one write inside the caller's transaction:
+// a key seen before -> replay the stored response; new key -> run the write and store its response.
+// If the write throws (403, 409, 422...), the transaction rolls back, the key is released, and
+// nothing is stored, so only successful responses are ever replayed.
+export async function withIdempotency(
+  client: PoolClient, userId: number, key: string | undefined, requestHash: string,
+  write: () => Promise<StoredResponse>,
+): Promise<StoredResponse & { replayed: boolean }> {
+  if (key === undefined) return { ...(await write()), replayed: false };
+  const stored = await claimIdempotencyKey(client, userId, key, requestHash);
+  if (stored) return { ...stored, replayed: true };
+  const response = await write();
+  await saveIdempotentResponse(client, userId, key, response);
+  return { ...response, replayed: false };
+}

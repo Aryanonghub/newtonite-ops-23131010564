@@ -4,6 +4,9 @@ import { defineConfig } from 'vitest/config';
 // test code loads) so it also overrides a DATABASE_URL that may be set in your shell.
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? 'postgres://ops:ops@localhost:5432/ops_test';
 process.env.JWT_SECRET = 'test-secret';
+process.env.LOG_LEVEL = 'silent'; // the request logs would drown the test output
+process.env.LIVE_POLL_MS = '100';
+process.env.LIVE_STREAM_SECONDS = '2';
 
 export default defineConfig({
   test: {

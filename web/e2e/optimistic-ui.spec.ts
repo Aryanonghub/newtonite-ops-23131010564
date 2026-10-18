@@ -40,6 +40,9 @@ test('second approver: UI rolls back and shows "This item changed, reload" (real
   const id = await createItem(request, 'awaiting_approval');
   const priya = await pageAs(browser, request, 'priya@ops.test'); // Lead, Payments
   const ada = await pageAs(browser, request, 'admin@ops.test');   // Admin
+  // Ada's page must stay stale for this test, as if it had not received the live update yet
+  // (e.g. a laptop waking from sleep), so her live stream is blocked.
+  await ada.route('**/live', (route) => route.abort());
   for (const page of [priya, ada]) {
     await page.goto(`/items/${id}`);
     await expect(statusChip(page)).toHaveText('awaiting approval');
@@ -97,4 +100,19 @@ test('claim updates the UI immediately, before the server answers', async ({ bro
   expect(serverAnswered).toBe(false);                       // ...while the server hasn't replied yet
   await expect(sara.getByText('You claimed this item')).toBeVisible(); // confirmed after the reply
   expect(serverAnswered).toBe(true);
+});
+
+test('live update: another person\'s change appears without a reload', async ({ browser, request }) => {
+  const id = await createItem(request, 'open');
+  const priya = await pageAs(browser, request, 'priya@ops.test');
+  await priya.goto(`/items/${id}`);
+  await expect(statusChip(priya)).toHaveText('open');
+
+  // Sara claims it through the API, i.e. from somewhere else entirely.
+  const sara = await login(request, 'sara@ops.test');
+  await request.post(`/api/items/${id}/claim`, { headers: { Authorization: `Bearer ${sara}` } });
+
+  // Well before the 10 s polling fallback would notice.
+  await expect(statusChip(priya)).toHaveText('in progress', { timeout: 5000 });
+  await expect(priya.getByText(/assigned it to Sara/)).toBeVisible();
 });

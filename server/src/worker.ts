@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg';
 import { pool } from './db';
+import { log } from './logger';
 
 export interface Job {
   id: number;
@@ -66,7 +67,7 @@ export async function processNextJob(registry: Record<string, Handler> = handler
           WHERE id = $1`,
         [job.id, attempts, status, err instanceof Error ? err.message : String(err), backoffSeconds(attempts)],
       );
-      console.error(`job ${job.id} (${job.kind}) attempt ${attempts} failed -> ${status}`);
+      log('warn', 'job failed', { jobId: job.id, kind: job.kind, attempt: attempts, status, error: err instanceof Error ? err.message : String(err) });
     }
 
     await client.query('COMMIT');
@@ -89,7 +90,7 @@ async function runWorker(isStopped: () => boolean) {
       if (!didWork) await sleep(1000);
     } catch (err) {
       // e.g. database not ready yet: log, wait, try again instead of crashing
-      console.error('worker error:', err instanceof Error ? err.message : err);
+      log('error', 'worker error', { error: err instanceof Error ? err.message : String(err) });
       await sleep(5000);
     }
   }
@@ -102,6 +103,6 @@ if (require.main === module) {
   };
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
-  console.log('outbox worker started');
+  log('info', 'outbox worker started');
   runWorker(() => stopped).then(() => pool.end());
 }
