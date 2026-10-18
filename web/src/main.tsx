@@ -4,7 +4,10 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { App } from './App';
+import { IS_LOCAL } from './env';
 import { theme } from './theme';
+
+if (IS_LOCAL) document.title = `Local · ${document.title}`; // tells the tabs apart
 
 const queryClient = new QueryClient({
   defaultOptions: {

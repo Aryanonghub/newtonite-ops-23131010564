@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { api, setToken } from '../api';
 import { Brand } from '../brand';
+import { IS_LOCAL } from '../env';
 import { PersonAvatar } from '../components';
 import { RAIL_BG, RAIL_TEXT } from '../theme';
 
@@ -77,6 +78,11 @@ export function LoginPage() {
       <Box sx={{ flexGrow: 1, display: 'grid', placeItems: 'center', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ width: '100%', maxWidth: 440 }}>
           <Box sx={{ display: { md: 'none' }, mb: 4 }}><Brand size={30} /></Box>
+          {IS_LOCAL && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              You are on a <b>local copy</b>. Its items are separate from the live site, so the same ID can be a different item there.
+            </Alert>
+          )}
           <Typography variant="h5">Sign in</Typography>
           <Typography color="text.secondary" sx={{ mb: 3 }}>Pick a demo person, or use an email and password.</Typography>
 

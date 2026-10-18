@@ -62,3 +62,7 @@ export function timeAgo(iso: string): string {
   if (abs < 86400) return relative.format(Math.round(seconds / 3600), 'hour');
   return relative.format(Math.round(seconds / 86400), 'day');
 }
+
+// Display key with the team in it, e.g. "PAY-20013", so it's obvious which team an item belongs to.
+// The number is the real item id; search accepts "PAY-20013", "#20013" or "20013".
+export const itemCode = (item: { id: number; team_name: string }) => `${item.team_name.slice(0, 3).toUpperCase()}-${item.id}`;

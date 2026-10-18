@@ -138,13 +138,14 @@ describe('GET /items (filters + cursor pagination)', () => {
     });
   });
 
-  it('search by item id: "123" or "#123" finds that item, but never one from another team', async () => {
+  it('search by item id: "123", "#123" or "PAY-123" finds that item, but never one from another team', async () => {
     const mine = await createItem(f.alice, f.payments, { title: 'Payout stuck' });
     const theirs = await createItem(f.sam, f.support, { title: 'Support thing' });
     const search = (q: string) => api().get(`/items?q=${encodeURIComponent(q)}`).set(auth(f.alice.token)).expect(200);
 
     expect((await search(String(mine.id))).body.items.map((i: { id: number }) => i.id)).toEqual([mine.id]);
     expect((await search(`#${mine.id}`)).body.items.map((i: { id: number }) => i.id)).toEqual([mine.id]);
+    expect((await search(`PAY-${mine.id}`)).body.items.map((i: { id: number }) => i.id)).toEqual([mine.id]);
     expect((await search(String(theirs.id))).body.items).toEqual([]); // team scoping still applies
   });
 });

@@ -4,7 +4,7 @@ import {
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { PANEL_BG, PRIORITY_COLORS, STATUS_COLORS } from './theme';
-import { label, type Item } from './types';
+import { itemCode, label, type Item } from './types';
 
 // Soft filled pill with the word, e.g. "High". Colour is never the only signal.
 export function PriorityChip({ priority }: { priority: string }) {
@@ -123,7 +123,7 @@ export function ItemsTable({ items, empty = 'No items', selectedId }: { items: I
           {items.map((item) => (
             <TableRow key={item.id} hover selected={item.id === selectedId} sx={{ cursor: 'pointer' }}
               onClick={() => navigate(`/items/${item.id}`)}>
-              <TableCell sx={{ color: 'primary.main', fontWeight: 600, whiteSpace: 'nowrap' }}>#{item.id}</TableCell>
+              <TableCell sx={{ color: 'primary.main', fontWeight: 600, whiteSpace: 'nowrap' }}>{itemCode(item)}</TableCell>
               <TableCell sx={{ maxWidth: 360 }}>
                 <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', minWidth: 0 }}>
                   {item.assignee_name

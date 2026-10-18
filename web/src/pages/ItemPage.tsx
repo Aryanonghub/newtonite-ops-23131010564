@@ -10,7 +10,7 @@ import { useMe } from '../App';
 import { useLiveUpdates } from '../live';
 import { DetailGrid, DueDate, Person, PersonAvatar, PriorityChip, StatusChip, shortName } from '../components';
 import { PANEL_BG } from '../theme';
-import { PRIORITIES, STATUSES, label, timeAgo, type ActivityEvent, type Item } from '../types';
+import { PRIORITIES, STATUSES, itemCode, label, timeAgo, type ActivityEvent, type Item } from '../types';
 import { ACTIONS, atLeast, canApprove, canMove, nextStep, roleIn } from '../workflow';
 
 // A write = the request to send, what the item should look like if it succeeds,
@@ -159,7 +159,7 @@ export function ItemPanel({ id, onClose }: { id: number; onClose: () => void }) 
       <Box sx={{ p: { xs: 2, sm: 4 }, minWidth: 0 }}>
         <Stack direction="row" sx={{ alignItems: 'center', mb: 2 }}>
           <Typography sx={{ flexGrow: 1, fontWeight: 600 }}>
-            {item.team_name} <Box component="span" sx={{ color: 'text.secondary', mx: 1 }}>›</Box> #{item.id}
+            {item.team_name} <Box component="span" sx={{ color: 'text.secondary', mx: 1 }}>›</Box> {itemCode(item)}
           </Typography>
           <IconButton onClick={onClose} aria-label="Close" sx={{ border: '1px solid', borderColor: 'divider' }}>
             <CloseRounded fontSize="small" />

@@ -8,6 +8,7 @@ import { useState, type ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { api, getToken, setToken } from './api';
 import { LOGO_SRC } from './brand';
+import { IS_LOCAL } from './env';
 import { PersonAvatar } from './components';
 import { DashboardPage } from './pages/DashboardPage';
 import { ItemsPage } from './pages/ItemsPage';
@@ -79,6 +80,7 @@ function Rail() {
         <Box component="img" src={LOGO_SRC} alt="Newtonite" sx={{ width: 40, height: 40, borderRadius: '50%',
           display: 'block', boxShadow: '0 0 0 1px rgba(255,255,255,0.18)' }} />
       </Box>
+      {IS_LOCAL && <LocalBadge />}
       <RailLink to="/" label="Dashboard" active={location.pathname === '/'} icon={<SpaceDashboardOutlined />} />
       <RailLink to="/items" label="Work items" active={location.pathname.startsWith('/items')} icon={<ConfirmationNumberOutlined />} />
       <Notifications />
@@ -112,6 +114,16 @@ function Rail() {
         </>
       )}
     </Stack>
+  );
+}
+
+// Shown only on a local copy (Docker on this machine): its data is separate from the live site's.
+export function LocalBadge() {
+  return (
+    <Tooltip title="Local copy: separate data from the live site" placement="right">
+      <Box sx={{ bgcolor: '#f59e0b', color: '#111', fontSize: 10, fontWeight: 800, letterSpacing: '0.06em',
+        px: 0.75, py: 0.25, borderRadius: 1, mb: { md: 1 } }}>LOCAL</Box>
+    </Tooltip>
   );
 }
 

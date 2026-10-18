@@ -98,8 +98,9 @@ itemsRouter.get('/', async (req, res) => {
       `w.search_vector @@ websearch_to_tsquery('english', $${params.push(f.q)})`,
       `w.title ILIKE $${params.push(`%${f.q.replace(/[\\%_]/g, '\\$&')}%`)}`, // LIKE wildcards escaped
     ];
-    // 3. An item id: "20013" or "#20013" also finds that item (still only within the user's teams).
-    const id = /^#?(\d{1,9})$/.exec(f.q);
+    // 3. An item id: "20013", "#20013" or the displayed key "PAY-20013" also finds that item
+    //    (still only within the user's teams).
+    const id = /^(?:#|[A-Za-z]{2,5}-)?(\d{1,9})$/.exec(f.q);
     if (id) conditions.push(`w.id = $${params.push(Number(id[1]))}`);
     where.push(`(${conditions.join(' OR ')})`);
   }
