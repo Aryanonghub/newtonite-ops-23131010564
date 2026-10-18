@@ -60,6 +60,7 @@ describe('workflow', () => {
     const res = await transition(f.ada, item.id, 'resolved', 3);
 
     expect(res.status).toBe(409);
+    expect(res.body.error).toBe('lee approved it since you loaded this item.');
     expect(res.body.item).toMatchObject({ status: 'resolved', version: 4 });
   });
 

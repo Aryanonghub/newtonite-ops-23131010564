@@ -52,6 +52,7 @@ test('second approver: UI rolls back and shows "This item changed, reload" (real
   await ada.getByRole('button', { name: 'Approve' }).click();
 
   await expect(ada.getByText('This item changed, reload')).toBeVisible();
+  await expect(ada.getByText('Priya (Payments Lead) approved it since you loaded this item.')).toBeVisible(); // names who
   await expect(statusChip(ada)).toHaveText('awaiting approval'); // rolled back
   await expect(successPopup(ada)).toHaveCount(0);                 // no false "Approved"
 

@@ -23,6 +23,8 @@ describe('POST /items/:id/claim under concurrency', () => {
     const winner = a.status === 200 ? f.alice : f.bob;
     const loser = a.status === 200 ? b : a;
     expect(loser.body.item.assignee_id).toBe(winner.id); // 409 carries the latest item
+    const winnerName = winner === f.alice ? 'alice' : 'bob';
+    expect(loser.body.error).toBe(`${winnerName} has already claimed this item.`); // ...and names the winner
 
     // The database and the history agree: one assignee, one claim recorded.
     expect(await dbItem(item.id)).toMatchObject({ assignee_id: winner.id, status: 'in_progress', version: 2 });

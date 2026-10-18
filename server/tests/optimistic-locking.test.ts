@@ -20,6 +20,7 @@ describe('optimistic locking', () => {
       .send({ version: 1, title: 'Edited by Bob', priority: 'low' });
 
     expect(stale.status).toBe(409);
+    expect(stale.body.error).toBe('alice edited the title since you loaded this item.'); // who, and what
     expect(stale.body.item).toMatchObject({ title: 'Edited by Alice', version: 2 });
     expect(await dbItem(item.id)).toMatchObject({ title: 'Edited by Alice', priority: 'high', version: 2 });
     // Bob's rejected edit left no trace in the history.
@@ -49,6 +50,7 @@ describe('optimistic locking', () => {
       .send({ to: 'awaiting_approval', version: 1 });
 
     expect(res.status).toBe(409);
+    expect(res.body.error).toBe('alice moved it to in progress since you loaded this item.');
     expect((await dbItem(item.id)).status).toBe('in_progress');
   });
 

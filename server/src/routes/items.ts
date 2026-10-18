@@ -23,10 +23,39 @@ async function loadItem(client: PoolClient, id: number): Promise<Item> {
   return item;
 }
 
-// Used when a conditional UPDATE matched 0 rows: tell the client, and send the latest item
-// so the UI can show what changed without another request.
-async function conflict(client: PoolClient, id: number, message: string): Promise<never> {
-  throw new HttpError(409, message, { item: await fetchItem(client, id) });
+// Used when a conditional UPDATE matched 0 rows: tell the client who got there first, and send
+// the latest item so the UI can show what changed without another request.
+async function conflict(client: PoolClient, id: number, reason: 'claimed' | 'stale'): Promise<never> {
+  const item = await fetchItem(client, id);
+  const message = reason === 'claimed' && item?.assignee_name
+    ? `${item.assignee_name} has already claimed this item.`
+    : await describeLastChange(client, id);
+  throw new HttpError(409, message, { item });
+}
+
+// "Priya approved it since you loaded this item." Built from the newest history event: the request
+// that won had already committed it, which is why our UPDATE matched 0 rows. Comments are skipped
+// because they don't change the item's version.
+async function describeLastChange(client: PoolClient, id: number): Promise<string> {
+  const { rows } = await client.query(
+    `SELECT e.kind, e.field, e.from_value, e.to_value, u.name
+       FROM activity_events e JOIN users u ON u.id = e.actor_id
+      WHERE e.item_id = $1 AND e.kind <> 'commented'
+      ORDER BY e.id DESC LIMIT 1`,
+    [id],
+  );
+  const e = rows[0];
+  if (!e) return 'This item was changed by someone else. Reload and try again.';
+  const label = (value: string) => value.replace(/_/g, ' ');
+  let what = 'changed it';
+  if (e.kind === 'status_changed') {
+    what = e.from_value === 'awaiting_approval' && e.to_value === 'resolved' ? 'approved it' : `moved it to ${label(e.to_value)}`;
+  } else if (e.kind === 'priority_changed') {
+    what = `changed the priority to ${e.to_value}`;
+  } else if (e.kind === 'edited') {
+    what = `edited the ${label(e.field)}`;
+  }
+  return `${e.name} ${what} since you loaded this item.`;
 }
 
 // ---------- Reads ----------
@@ -160,7 +189,7 @@ itemsRouter.patch('/:id', async (req, res) => {
         WHERE id = $1 AND version = $2`,
       [id, version, ...fields.map((f) => changes[f])],
     );
-    if (rowCount === 0) await conflict(client, id, 'This item was changed by someone else. Reload and try again.');
+    if (rowCount === 0) await conflict(client, id, 'stale');
 
     for (const f of fields) {
       const from = before[f] ?? null;
@@ -194,7 +223,7 @@ itemsRouter.post('/:id/claim', async (req, res) => {
         WHERE id = $1 AND assignee_id IS NULL`,
       [id, user.id],
     );
-    if (rowCount === 0) await conflict(client, id, 'This item was already claimed by someone else.');
+    if (rowCount === 0) await conflict(client, id, 'claimed');
 
     await recordEvent(client, { itemId: id, actorId: user.id, kind: 'assignee_changed', from: null, to: String(user.id) });
     await recordEvent(client, { itemId: id, actorId: user.id, kind: 'status_changed', from: before.status, to: 'in_progress' });
@@ -220,7 +249,7 @@ itemsRouter.post('/:id/transition', async (req, res) => {
     // Stale page? Say so before checking workflow rules. Otherwise a second approver would get
     // "Cannot move from resolved to resolved" instead of "this item changed". The WHERE version
     // check below still handles two requests that both pass this line at the same instant.
-    if (before.version !== version) await conflict(client, id, 'This item was changed by someone else. Reload and try again.');
+    if (before.version !== version) await conflict(client, id, 'stale');
     checkTransition(user, before, to); // allowed-transitions map + Lead/Admin-only approval + four-eyes
 
     // Version check: also guarantees the status we validated above is still the current one.
@@ -230,7 +259,7 @@ itemsRouter.post('/:id/transition', async (req, res) => {
         WHERE id = $1 AND version = $2`,
       [id, version, to, to === 'awaiting_approval' ? user.id : null],
     );
-    if (rowCount === 0) await conflict(client, id, 'This item was changed by someone else. Reload and try again.');
+    if (rowCount === 0) await conflict(client, id, 'stale');
 
     await recordEvent(client, { itemId: id, actorId: user.id, kind: 'status_changed', from: before.status, to });
     if (before.assignee_id !== null && before.assignee_id !== user.id) {

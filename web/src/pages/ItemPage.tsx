@@ -1,5 +1,5 @@
 import {
-  Alert, Avatar, Box, Button, Divider, MenuItem, Paper, Snackbar, Stack, Step, StepLabel, Stepper, TextField,
+  Alert, AlertTitle, Avatar, Box, Button, Divider, MenuItem, Paper, Snackbar, Stack, Step, StepLabel, Stepper, TextField,
   Typography,
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -113,7 +113,8 @@ export function ItemPage() {
     <Stack spacing={2}>
       {error && (error.status === 409 ? (
         <Alert severity="warning" action={<Button color="inherit" onClick={reload}>Reload</Button>}>
-          This item changed, reload. ({error.message})
+          <AlertTitle>This item changed, reload</AlertTitle>
+          {error.message /* who got there first, e.g. "Priya approved it since you loaded this item." */}
         </Alert>
       ) : (
         <Alert severity="error" onClose={() => setError(null)}>{error.message}</Alert>
