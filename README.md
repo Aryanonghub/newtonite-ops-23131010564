@@ -28,11 +28,11 @@ Use separate browsers for two people (e.g. Chrome and Safari; incognito windows 
 
 | Situation | How it's handled | Try it | Test |
 |---|---|---|---|
-| **Two people claim one item** | `UPDATE … WHERE id = $1 AND assignee_id IS NULL`. 0 rows → **409** *"Mohan has already claimed this item."* | Mohan and Sara open the same item and both click **Claim**, or run `./scripts/race-claim.sh` → one `200`, one `409` | `claim.test.ts` |
+| **Two people claim one item** | `UPDATE … WHERE id = $1 AND assignee_id IS NULL`. 0 rows → **409** *"Mohan (Payments Member) has already claimed this item."* | Mohan and Sara open the same item and both click **Claim**, or run `./scripts/race-claim.sh` → one `200`, one `409` | `claim.test.ts` |
 | **Acting on a stale page** | Every write sends the `version` it saw: `WHERE version = $2`. A mismatch → **409** with the latest item and *who changed what* | Mohan and Priya both **Edit** one item; Priya saves first, then Mohan → refused | `optimistic-locking.test.ts` |
 | **Double click / retry** | `Idempotency-Key` stored with the response **in the same transaction**; a repeat replays the response | Send one create twice with the same key → same id, `Idempotent-Replayed: true` | `idempotency.test.ts` |
 | **Skipping workflow steps** | Allowed-moves map on the server (**422**). Only a Lead/Admin **of that team** approves (**403**), never the person who submitted it (four-eyes) | Priya submits her own item → no Approve button; `./scripts/race-approve.sh` → one `200`, one `409` | `workflow.test.ts` |
-| **Access by team and role** | One function, `can()`, behind every endpoint. Outside the team → **404**; role too low → **403**; only the assignee or a Lead moves an assigned item | Lena opens a Payments item → *Not found*; Vik sees no buttons; Mohan can't submit Sara's item | `authorization.test.ts` |
+| **Access by team and role** | One function, `can()`, behind every endpoint. Outside the team → **404**; role too low → **403**; only the assignee or a Lead moves an assigned item | Lena opens a Payments item → *Not found*; Vik sees no buttons; Mohan can't submit Sara's item | `authorization.test.ts`, `workflow.test.ts` |
 | **History matches the item** | Change + history row + outbox job in **one transaction**; a DB trigger makes history append-only | Every change appears in the item's Activity | `activity.test.ts` |
 | **Background work** | Transactional outbox; worker uses `SKIP LOCKED`, retries with backoff, gives up after 5; idempotent handler | Mohan claims Ada's item → Ada's bell shows it | `outbox.test.ts` |
 | **UI ahead of the server** | Optimistic update, **rolled back** on 409/403 with the server's reason; success shown only once confirmed. Live updates refresh an open item within ~2 s | Lose a claim race → the page rolls back | Playwright `web/e2e/` |
@@ -70,6 +70,8 @@ new_item() { curl -s -X POST $API/items -H "Authorization: Bearer $(login mohan)
 | 13 | Live updates | Terminal A: `ID=$(new_item); echo $ID; curl -N $API/items/$ID/live -H "Authorization: Bearer $(login priya)"`<br>Terminal B (helpers set, same `ID`): `call sara POST /items/$ID/claim` | Terminal A prints `event: change` within about 2 s |
 
 ## Tests
+
+Needs Node.js 22+ (the app itself only needs Docker).
 
 ```bash
 docker compose up -d db && (cd server && npm ci && npm test)    # 85 tests against a real Postgres (~15 s)
