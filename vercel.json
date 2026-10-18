@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "npm ci --prefix server && npm ci --prefix web",
-  "buildCommand": "npm run build --prefix server && npm run migrate --prefix server && npm run seed --prefix server && npm run build --prefix web",
+  "buildCommand": "npm run build --prefix server && DATABASE_URL=${DATABASE_URL_UNPOOLED:-$DATABASE_URL} sh -c 'npm run migrate --prefix server && npm run seed --prefix server' && npm run build --prefix web",
   "outputDirectory": "web/dist",
   "functions": {
     "api/index.js": { "maxDuration": 30 }
