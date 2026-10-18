@@ -1,7 +1,8 @@
 import { Box, Stack, Typography } from '@mui/material';
 import { useState } from 'react';
 
-// Logo file: web/public/newtonite-logo.png. If it is missing or fails to load, a plain wordmark is shown instead.
+// Newtonite's "N" mark (web/public/newtonite-logo.png, from newtonite.in) next to the product name.
+// If the image fails to load, only the name is shown.
 const LOGO_SRC = '/newtonite-logo.png';
 
 export function Brand({ dark = false, size = 28 }: { dark?: boolean; size?: number }) {
@@ -9,11 +10,13 @@ export function Brand({ dark = false, size = 28 }: { dark?: boolean; size?: numb
   return (
     <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center' }}>
       {!logoFailed && (
-        <Box component="img" src={LOGO_SRC} alt="Newtonite" onError={() => setLogoFailed(true)}
-          sx={{ height: size, width: 'auto', display: 'block' }} />
+        <Box component="img" src={LOGO_SRC} alt="" onError={() => setLogoFailed(true)}
+          sx={{ width: size, height: size, borderRadius: size * 0.22, display: 'block',
+            // On the dark sidebar the black square needs a faint edge to stand out.
+            boxShadow: dark ? '0 0 0 1px rgba(255,255,255,0.14)' : 'none' }} />
       )}
       <Typography sx={{ fontWeight: 700, fontSize: size * 0.6, color: dark ? '#fff' : 'text.primary', letterSpacing: '-0.01em' }}>
-        {logoFailed ? 'Newtonite Ops' : 'Ops'}
+        Newtonite Ops
       </Typography>
     </Stack>
   );
