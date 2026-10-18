@@ -44,9 +44,16 @@ export async function fetchItem(db: Db, id: number): Promise<Item | null> {
   return rows[0] ?? null;
 }
 
+// Ids and versions are Postgres INT columns. A bigger number would make Postgres raise an error (a 500),
+// so it is rejected here instead: as 404 for a path id, as 400 for query and body values.
+const MAX_INT = 2_147_483_647;
+const isId = (n: number) => Number.isInteger(n) && n > 0 && n <= MAX_INT;
+const positiveInt = z.number().int().positive().max(MAX_INT);
+const positiveIntParam = z.coerce.number().int().positive().max(MAX_INT); // from a query string
+
 export function parseId(raw: string): number {
   const id = Number(raw);
-  if (!Number.isInteger(id) || id <= 0) throw new HttpError(404, 'Not found');
+  if (!isId(id)) throw new HttpError(404, 'Not found');
   return id;
 }
 
@@ -60,21 +67,26 @@ export function parse<T>(schema: z.ZodType<T>, data: unknown): T {
   return result.data;
 }
 
-const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be YYYY-MM-DD');
+// YYYY-MM-DD and a real calendar date (2026-02-30 would otherwise reach Postgres and fail there).
+const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be YYYY-MM-DD')
+  .refine((d) => {
+    const date = new Date(`${d}T00:00:00Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(d); // 2026-02-30 rolls over to March
+  }, 'is not a real date');
 
 export const createItemSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().max(5000).default(''),
   type: z.enum(TYPES),
   priority: z.enum(PRIORITIES),
-  team_id: z.number().int().positive(),
+  team_id: positiveInt,
   due_date: dateString.nullable().default(null),
 });
 
 // strictObject: unknown keys are rejected, so nobody can sneak in status or assignee_id.
 // Those change only through /claim and /transition, where the workflow rules live.
 export const patchItemSchema = z.strictObject({
-  version: z.number().int().positive(),
+  version: positiveInt,
   title: z.string().trim().min(1).max(200).optional(),
   description: z.string().max(5000).optional(),
   priority: z.enum(PRIORITIES).optional(),
@@ -83,7 +95,7 @@ export const patchItemSchema = z.strictObject({
 
 export const transitionSchema = z.object({
   to: z.enum(STATUSES),
-  version: z.number().int().positive(),
+  version: positiveInt,
 });
 
 export const commentSchema = z.object({
@@ -94,8 +106,8 @@ export const listQuerySchema = z.object({
   status: z.enum(STATUSES).optional(),
   priority: z.enum(PRIORITIES).optional(),
   type: z.enum(TYPES).optional(),
-  team: z.coerce.number().int().positive().optional(),
-  assignee: z.union([z.literal('me'), z.literal('none'), z.coerce.number().int().positive()]).optional(),
+  team: positiveIntParam.optional(),
+  assignee: z.union([z.literal('me'), z.literal('none'), positiveIntParam]).optional(),
   q: z.string().trim().min(1).max(100).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -105,6 +117,6 @@ export const listQuerySchema = z.object({
 export const encodeCursor = (id: number) => Buffer.from(String(id)).toString('base64url');
 export function decodeCursor(cursor: string): number {
   const id = Number(Buffer.from(cursor, 'base64url').toString());
-  if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, 'Invalid cursor');
+  if (!isId(id)) throw new HttpError(400, 'Invalid cursor');
   return id;
 }

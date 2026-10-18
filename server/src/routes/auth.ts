@@ -13,7 +13,7 @@ const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10);
 // Rate limit: after MAX_FAILURES wrong passwords for one email within the window, refuse further
 // attempts (even correct ones) with 429 until the oldest failure leaves the window. Counted per email,
 // so guessing one account's password is slowed down without locking anyone else out.
-export const MAX_FAILURES = 5;
+const MAX_FAILURES = 5;
 const WINDOW_MINUTES = 15;
 
 authRouter.post('/auth/login', async (req, res) => {

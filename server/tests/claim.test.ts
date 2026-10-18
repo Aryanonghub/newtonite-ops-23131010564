@@ -55,4 +55,14 @@ describe('POST /items/:id/claim under concurrency', () => {
     expect(res.status).toBe(409);
     expect(await dbItem(item.id)).toMatchObject({ assignee_id: f.alice.id, version: 2 });
   });
+
+  it('claiming your own item again says so, instead of naming yourself', async () => {
+    const item = await createItem(f.lee, f.payments);
+    await api().post(`/items/${item.id}/claim`).set(auth(f.alice.token)).expect(200);
+
+    const res = await api().post(`/items/${item.id}/claim`).set(auth(f.alice.token));
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('You have already claimed this item.');
+  });
 });

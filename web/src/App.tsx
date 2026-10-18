@@ -118,7 +118,7 @@ function Rail() {
 }
 
 // Shown only on a local copy (Docker on this machine): its data is separate from the live site's.
-export function LocalBadge() {
+function LocalBadge() {
   return (
     <Tooltip title="Local copy: separate data from the live site" placement="right">
       <Box sx={{ bgcolor: '#f59e0b', color: '#111', fontSize: 10, fontWeight: 800, letterSpacing: '0.06em',

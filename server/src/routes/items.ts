@@ -26,11 +26,12 @@ async function loadItem(client: PoolClient, id: number): Promise<Item> {
 
 // Used when a conditional UPDATE matched 0 rows: tell the client who got there first, and send
 // the latest item so the UI can show what changed without another request.
-async function conflict(client: PoolClient, id: number, reason: 'claimed' | 'stale'): Promise<never> {
+async function conflict(client: PoolClient, id: number, reason: 'claimed' | 'stale', userId?: number): Promise<never> {
   const item = await fetchItem(client, id);
-  const message = reason === 'claimed' && item?.assignee_name
-    ? `${item.assignee_name} has already claimed this item.`
-    : await describeLastChange(client, id);
+  let message: string;
+  if (reason === 'claimed' && item?.assignee_id === userId) message = 'You have already claimed this item.';
+  else if (reason === 'claimed' && item?.assignee_name) message = `${item.assignee_name} has already claimed this item.`;
+  else message = await describeLastChange(client, id);
   throw new HttpError(409, message, { item });
 }
 
@@ -99,9 +100,12 @@ itemsRouter.get('/', async (req, res) => {
       `w.title ILIKE $${params.push(`%${f.q.replace(/[\\%_]/g, '\\$&')}%`)}`, // LIKE wildcards escaped
     ];
     // 3. An item id: "20013", "#20013" or the displayed key "PAY-20013" also finds that item
-    //    (still only within the user's teams).
-    const id = /^(?:#|[A-Za-z]{2,5}-)?(\d{1,9})$/.exec(f.q);
-    if (id) conditions.push(`w.id = $${params.push(Number(id[1]))}`);
+    //    (still only within the user's teams). A team prefix must match the item's team.
+    const id = /^(?:#|([A-Za-z]{3})-)?(\d{1,9})$/.exec(f.q);
+    if (id) {
+      const byId = `w.id = $${params.push(Number(id[2]))}`;
+      conditions.push(id[1] ? `(${byId} AND upper(left(t.name, 3)) = $${params.push(id[1].toUpperCase())})` : byId);
+    }
     where.push(`(${conditions.join(' OR ')})`);
   }
   // Keyset pagination: continue strictly after the last item of the previous page,
@@ -322,7 +326,7 @@ itemsRouter.post('/:id/claim', async (req, res) => {
         WHERE id = $1 AND assignee_id IS NULL`,
       [id, user.id],
     );
-    if (rowCount === 0) await conflict(client, id, 'claimed');
+    if (rowCount === 0) await conflict(client, id, 'claimed', user.id);
 
     await recordEvent(client, { itemId: id, actorId: user.id, kind: 'assignee_changed', from: null, to: String(user.id) });
     await recordEvent(client, { itemId: id, actorId: user.id, kind: 'status_changed', from: before.status, to: 'in_progress' });

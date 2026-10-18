@@ -146,6 +146,7 @@ describe('GET /items (filters + cursor pagination)', () => {
     expect((await search(String(mine.id))).body.items.map((i: { id: number }) => i.id)).toEqual([mine.id]);
     expect((await search(`#${mine.id}`)).body.items.map((i: { id: number }) => i.id)).toEqual([mine.id]);
     expect((await search(`PAY-${mine.id}`)).body.items.map((i: { id: number }) => i.id)).toEqual([mine.id]);
+    expect((await search(`SUP-${mine.id}`)).body.items).toEqual([]); // wrong team prefix: no match
     expect((await search(String(theirs.id))).body.items).toEqual([]); // team scoping still applies
   });
 });

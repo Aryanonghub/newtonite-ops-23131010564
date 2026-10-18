@@ -72,7 +72,7 @@ new_item() { curl -s -X POST $API/items -H "Authorization: Bearer $(login mohan)
 ## Tests
 
 ```bash
-docker compose up -d db && (cd server && npm ci && npm test)    # 79 tests against a real Postgres (~15 s)
+docker compose up -d db && (cd server && npm ci && npm test)    # 85 tests against a real Postgres (~15 s)
 (cd web && npm ci && npx playwright install chromium && npm run test:e2e)   # 4 browser tests; needs the app running
 ```
 
