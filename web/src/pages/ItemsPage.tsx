@@ -56,7 +56,7 @@ export function ItemsPage() {
       </Stack>
 
       <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
-        <TextField size="small" label="Search title" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <TextField size="small" label="Search" placeholder='e.g. refund failed, "card declined"' value={search} onChange={(e) => setSearch(e.target.value)} />
         {select('status', 'Status', STATUSES.map((s) => [s, label(s)]))}
         {select('priority', 'Priority', PRIORITIES.map((p) => [p, p]))}
         {select('type', 'Type', TYPES.map((t) => [t, label(t)]))}

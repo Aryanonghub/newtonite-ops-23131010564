@@ -73,6 +73,48 @@ describe('GET /items (filters + cursor pagination)', () => {
     expect(await search('%')).toEqual([percent.id]);     // not "match everything"
   });
 
+  describe('full-text search', () => {
+    const search = async (q: string) =>
+      (await api().get(`/items?q=${encodeURIComponent(q)}`).set(auth(f.alice.token)).expect(200))
+        .body.items.map((i: { id: number }) => i.id);
+
+    it('finds words in the description, not just the title', async () => {
+      const item = await createItem(f.alice, f.payments, { title: 'Customer issue', description: 'Chargeback from Visa' });
+      await createItem(f.alice, f.payments, { title: 'Something else' });
+
+      expect(await search('chargeback')).toEqual([item.id]);
+    });
+
+    it('ignores word order and matches word forms', async () => {
+      const item = await createItem(f.alice, f.payments, { title: 'Card payment declined' });
+      await createItem(f.alice, f.payments, { title: 'Card replaced' });
+
+      expect(await search('declined card')).toEqual([item.id]); // different order
+      expect(await search('payments declining')).toEqual([item.id]); // different word forms
+    });
+
+    it('supports "exact phrase" and -exclude', async () => {
+      const phrase = await createItem(f.alice, f.payments, { title: 'Card declined at checkout' });
+      const other = await createItem(f.alice, f.payments, { title: 'Declined refund for card' });
+
+      expect(await search('"card declined"')).toEqual([phrase.id]);
+      expect(await search('declined -refund')).toEqual([phrase.id]);
+      expect(await search('declined card')).toEqual([other.id, phrase.id]); // both, newest first
+    });
+
+    it('still matches part of a word in the title', async () => {
+      const item = await createItem(f.alice, f.payments, { title: 'Payout delayed' });
+
+      expect(await search('payo')).toEqual([item.id]);
+    });
+
+    it('only searches the user’s own teams', async () => {
+      await createItem(f.sam, f.support, { title: 'Chargeback in Support' });
+
+      expect(await search('chargeback')).toEqual([]);
+    });
+  });
+
   it('rejects bad query values with 400', async () => {
     await api().get('/items?status=nope').set(auth(f.alice.token)).expect(400);
     await api().get('/items?limit=1000').set(auth(f.alice.token)).expect(400);

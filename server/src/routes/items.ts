@@ -52,7 +52,15 @@ itemsRouter.get('/', async (req, res) => {
   if (f.assignee === 'none') where.push('w.assignee_id IS NULL');
   else if (f.assignee === 'me') add('w.assignee_id = ?', user.id);
   else if (f.assignee) add('w.assignee_id = ?', f.assignee);
-  if (f.q) add('w.title ILIKE ?', `%${f.q.replace(/[\\%_]/g, '\\$&')}%`); // escape LIKE wildcards
+  if (f.q) {
+    // Two ways to match, either is enough:
+    // 1. Full-text over title + description: any word order, word forms ("refunds" finds "refund"),
+    //    and web-style syntax ("exact phrase", -exclude). Uses the GIN index on search_vector.
+    // 2. Partial title match, so typing part of a word ("paym") still works. Uses the trigram index.
+    params.push(f.q, `%${f.q.replace(/[\\%_]/g, '\\$&')}%`); // escape LIKE wildcards
+    where.push(`(w.search_vector @@ websearch_to_tsquery('english', $${params.length - 1})
+                 OR w.title ILIKE $${params.length})`);
+  }
   // Keyset pagination: continue strictly after the last item of the previous page,
   // in the same (created_at DESC, id DESC) order. id breaks ties between equal timestamps.
   if (f.cursor) add('(w.created_at, w.id) < (SELECT created_at, id FROM work_items WHERE id = ?)', decodeCursor(f.cursor));

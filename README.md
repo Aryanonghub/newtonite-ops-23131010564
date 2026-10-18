@@ -58,7 +58,7 @@ The tests run against a separate `ops_test` database in the same Postgres contai
 docker compose up -d db        # Postgres must be running
 cd server
 npm ci
-npm test                       # 45 tests, about 10 seconds
+npm test                       # 50 tests, about 10 seconds
 ```
 
 The tests never touch the demo data. They refuse to run against any database whose name doesn't end in `_test`.
@@ -71,7 +71,7 @@ The tests never touch the demo data. They refuse to run against any database who
 | `workflow.test.ts` | Open → Closed rejected (422); Member approval rejected (403); Lead/Admin approval allowed; a second approver gets 409 (not a workflow error); full path recorded in order |
 | `authorization.test.ts` | User from another team → 404 on every read and write; lists/dashboard scoped to own teams; Viewer read-only |
 | `outbox.test.ts` | Job written in the same transaction; job processed twice → one notification; failing job retries with backoff then `failed`; two workers never run the same job |
-| `list.test.ts` | Cursor pagination never skips or repeats rows (even with identical timestamps); filters; `%` in search is literal |
+| `list.test.ts` | Cursor pagination never skips or repeats rows (even with identical timestamps); filters; full-text search (description words, any word order, word forms, `"phrase"`, `-exclude`), partial title match, scoped to own teams |
 | `activity.test.ts` | History is append-only (DB rejects UPDATE/DELETE); a rejected write leaves no history |
 
 **Proving the tests are real:** remove `AND assignee_id IS NULL` from the claim `UPDATE` in
@@ -104,7 +104,7 @@ If any step fails, everything rolls back, so the history can never disagree with
 
 ```
 server/
-  migrations/            001 schema + indexes, 002 invariants, 003 notifications (plain SQL)
+  migrations/            001 schema + indexes, 002 invariants, 003 notifications, 004 full-text search (plain SQL)
   src/permissions.ts     can(user, action, item): the single permission check
   src/workflow.ts        allowed-transitions map + Lead-only approval
   src/routes/items.ts    list, detail, create, PATCH, claim, transition, comments, activity
@@ -122,7 +122,7 @@ web/src/
 |---|---|
 | `POST /auth/login` | `{ email, password }` → `{ token }` |
 | `GET /me` | current user and role per team |
-| `GET /items?status=&priority=&type=&team=&assignee=me\|none\|<id>&q=&cursor=&limit=` | only your teams; newest first; `{ items, nextCursor }` |
+| `GET /items?status=&priority=&type=&team=&assignee=me\|none\|<id>&q=&cursor=&limit=` | only your teams; newest first; `{ items, nextCursor }`. `q` = full-text over title + description, plus partial title match |
 | `POST /items` | **requires `Idempotency-Key` header** |
 | `GET /items/:id` | 404 if not in your team |
 | `PATCH /items/:id` | `{ version, title?, description?, priority?, due_date? }`; 409 on stale version |
@@ -140,7 +140,7 @@ See [ENGINEERING_DECISIONS.md](ENGINEERING_DECISIONS.md#known-limitations) for t
 - No reassign/unassign: an item gets an assignee only by being claimed.
 - Updates arrive by polling (10–15 s), not websockets. Notifications are in-app only, with no read/unread state.
 - JWT is stored in `localStorage` with an 8-hour expiry: no refresh tokens, revocation or login rate limiting.
-- Search is a case-insensitive match on the title only, with no ranking. The activity endpoint is not paginated.
+- Search results are newest first, not ranked by relevance; no typo tolerance. The activity endpoint is not paginated.
 - The optimistic-UI rollback was checked by hand in a browser; there are no automated frontend tests.
 
 ## References

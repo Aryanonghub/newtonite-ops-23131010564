@@ -157,9 +157,9 @@ insert, but a slow external call (email API) should instead mark the job "proces
 1. `LIMIT/OFFSET` pagination. Simple, but gets slower with each page and skips or repeats rows when items are
    inserted between page loads.
 2. **Keyset (cursor) pagination** on `(created_at DESC, id DESC)`.
-3. A search engine (Elasticsearch/OpenSearch).
+3. A search engine (Elasticsearch/OpenSearch) for search.
 
-**Choice: option 2, plus targeted indexes.**
+**Choice: option 2, plus targeted indexes, plus Postgres full-text search.**
 - The cursor is the id of the last item seen, base64-encoded. The next page is
   `WHERE (created_at, id) < (SELECT created_at, id FROM work_items WHERE id = $cursor)`.
   Looking the values up by id avoids precision bugs: JavaScript dates have milliseconds, Postgres has
@@ -170,7 +170,16 @@ insert, but a slow external call (email API) should instead mark the job "proces
   - `(assignee_id, status)`: "assigned to me"
   - a **partial index** containing only unassigned urgent items, for the dashboard
   - a **trigram GIN index** for `title ILIKE '%text%'`, which a normal B-tree can't serve
-- Measured with `EXPLAIN ANALYZE` on the 20,000 seeded items: every list and dashboard query runs in under 4 ms.
+  - a **full-text GIN index** on `search_vector`
+- **Search** matches if either of two things is true:
+  - **Full-text** over title + description: a `search_vector` *generated column* (Postgres keeps it in
+    sync itself), queried with `websearch_to_tsquery`. Word order doesn't matter, word forms match
+    ("refunds" finds "refund"), and `"exact phrase"` / `-exclude` work.
+  - **Partial title match** with `ILIKE`, so typing part of a word ("paym") still finds "payment".
+    Full-text only matches whole words.
+
+  Postgres combines both indexes in one plan (`BitmapOr`): about 7 ms on 20,000 items.
+- Measured with `EXPLAIN ANALYZE` on the 20,000 seeded items: list and dashboard queries run in under 4 ms.
 
 **Trade-off.**
 - There's no "jump to page 37" and no total count. Counting is expensive at scale; the dashboard says
@@ -201,7 +210,8 @@ insert, but a slow external call (email API) should instead mark the job "proces
 - No reassign/unassign; an item's owner can only change by claiming it while Open.
 - The assignee can approve their own item if they are a Lead (no four-eyes rule).
 - JWT in `localStorage` (readable by any injected script), 8-hour expiry, no refresh token, no revocation list, no login rate limiting.
-- Search covers titles only (case-insensitive substring), with no ranking or full-text search over descriptions.
+- Search results are sorted newest first, not by relevance. Ranking (`ts_rank`) would need a different cursor,
+  because keyset pagination needs a stable sort order. English stemming only; no typo tolerance.
 - `GET /items/:id/activity` returns the whole history without pagination.
 - Lists have no total count; dashboard panels show at most 20 items.
 - Notifications are in-app only, with no read/unread state. `failed` outbox jobs have no retry UI.
@@ -223,7 +233,7 @@ insert, but a slow external call (email API) should instead mark the job "proces
 ## At 10× scale
 
 - Partition `activity_events` by month (it grows fastest), and add read replicas for list and dashboard reads.
-- Move search to Postgres full-text search, or OpenSearch if ranking and typo tolerance are needed.
+- Move search to OpenSearch if relevance ranking and typo tolerance are needed. Postgres full-text search is fine until then.
 - Feed a dedicated queue from the outbox if job volume or slow handlers outgrow polling.
 - Replace polling with server-sent events or websockets for the item page.
 
