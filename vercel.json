@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm ci --prefix server && npm ci --prefix web",
+  "buildCommand": "npm run build --prefix server && npm run migrate --prefix server && npm run seed --prefix server && npm run build --prefix web",
+  "outputDirectory": "web/dist",
+  "functions": {
+    "api/index.js": { "maxDuration": 30 }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
