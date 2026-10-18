@@ -1,5 +1,7 @@
 # Operations Under Pressure (newtonite-ops-23131010564)
 
+[![CI](https://github.com/Aryanonghub/newtonite-ops-23131010564/actions/workflows/ci.yml/badge.svg)](https://github.com/Aryanonghub/newtonite-ops-23131010564/actions/workflows/ci.yml)
+
 An internal web app where teams such as Payments, Support and Compliance create, claim, track and resolve
 work items. Items move through a server-enforced workflow (Open → In Progress → Awaiting Approval →
 Resolved → Closed), and only a Lead of the item's team can approve. Every change is written to an
@@ -7,6 +9,21 @@ append-only activity history in the same database transaction as the change itse
 
 The focus is correct behaviour under pressure. Two people claiming the same item, stale edits, retried
 requests and cross-team access are all handled on the server and covered by tests against a real Postgres.
+
+## What happens under pressure
+
+| Situation | What the system does | Proven by |
+|---|---|---|
+| Two people act on the same item at once | Claim is one conditional `UPDATE ... WHERE assignee_id IS NULL`. One wins; the other gets 409 *"Alice has already claimed this item."* | `claim.test.ts` (2 and 10 parallel claims), `scripts/race-claim.sh` |
+| Someone acts from an out-of-date page | Every edit and move sends the `version` it saw. A mismatch is a 409 with the latest item and who changed what (*"Priya approved it since you loaded this item."*) | `optimistic-locking.test.ts`, `scripts/race-approve.sh` |
+| A request is sent twice | `POST /items` requires an `Idempotency-Key`. A retry replays the stored response; the same key with a different body gets 422 | `idempotency.test.ts` |
+| Someone tries to skip a workflow step | Allowed moves are a table on the server (422 otherwise). Only a Lead/Admin of the item's team can approve (403), and never the person who submitted it (four-eyes) | `workflow.test.ts` |
+| Background work fails or runs twice | Notifications go through a transactional outbox. The worker retries with backoff, gives up as `failed`, and never delivers twice | `outbox.test.ts` |
+| Someone outside the team probes an item | 404 on every read and write; lists and dashboard only show your teams; Viewers are read-only | `authorization.test.ts` |
+| The UI shows a change before the server agrees | Optimistic update, rolled back on 409/403 with the server's reason; the success popup appears only after the server confirms | `web/e2e/optimistic-ui.spec.ts` (Playwright) |
+| History must match what happened | Item change, history event and outbox job commit in one transaction; the database rejects UPDATE/DELETE on history | `activity.test.ts` |
+
+The reasoning and trade-offs behind each of these are in [ENGINEERING_DECISIONS.md](ENGINEERING_DECISIONS.md).
 
 ## Prerequisites
 
@@ -50,6 +67,21 @@ All passwords are **`password123`**. The login page has one-click buttons for th
 | `lena@ops.test`   | Lead, Support                            | Cannot see Payments items at all (404)           |
 | `tom@`, `carl@`, `cara@`, `omar@`, `pia@ops.test` | Support member, Compliance lead/member, Platform lead/member | |
 
+## Things to try
+
+Open two browser windows, one of them private, so you can be two people at once.
+
+1. **Claim race.** Log in as `mohan@ops.test` in one window and `sara@ops.test` in the other. Open the same
+   Open Payments item in both and click **Claim** in each, one right after the other. The second page rolls
+   back and says who claimed it.
+2. **Stale approval.** As Mohan, claim an item and click **Submit for approval**. Open it as `priya@ops.test`
+   and as `admin@ops.test`. Approve as Priya, then as Admin: the Admin's page rolls back and shows
+   *"Priya (Payments Lead) approved it since you loaded this item."* No false "Approved" popup appears.
+3. **Four-eyes.** As Priya, claim an item and submit it yourself. There is no Approve button, the page says
+   another Lead must approve it, and the API would answer 403.
+4. **Team walls.** As `lena@ops.test` (Support Lead), open a Payments item's URL: Not found. As
+   `vik@ops.test` (Viewer), items show no action buttons.
+
 ## Run the tests
 
 The tests run against a separate `ops_test` database in the same Postgres container (created on first start).
@@ -58,17 +90,17 @@ The tests run against a separate `ops_test` database in the same Postgres contai
 docker compose up -d db        # Postgres must be running
 cd server
 npm ci
-npm test                       # 50 tests, about 10 seconds
+npm test                       # 54 tests, about 10 seconds
 ```
 
 The tests never touch the demo data. They refuse to run against any database whose name doesn't end in `_test`.
 
 | Test file | Proves |
 |---|---|
-| `claim.test.ts` | 2 and 10 parallel claims → exactly one 200, the rest 409; DB and history agree |
-| `optimistic-locking.test.ts` | PATCH/transition with an old `version` → 409 with the latest item; data and history unchanged |
+| `claim.test.ts` | 2 and 10 parallel claims → exactly one 200, the rest 409 naming the winner; DB and history agree |
+| `optimistic-locking.test.ts` | PATCH/transition with an old `version` → 409 with the latest item and who changed what; data and history unchanged |
 | `idempotency.test.ts` | Same `Idempotency-Key` twice → one item, byte-identical response; different body → 422; 5 parallel same-key requests → one item |
-| `workflow.test.ts` | Open → Closed rejected (422); Member approval rejected (403); Lead/Admin approval allowed; a second approver gets 409 (not a workflow error); full path recorded in order |
+| `workflow.test.ts` | Open → Closed rejected (422); Member approval rejected (403); Lead/Admin approval allowed; the submitter can't approve their own item, even as Lead/Admin (four-eyes); a second approver gets 409 (not a workflow error); full path recorded in order |
 | `authorization.test.ts` | User from another team → 404 on every read and write; lists/dashboard scoped to own teams; Viewer read-only |
 | `outbox.test.ts` | Job written in the same transaction; job processed twice → one notification; failing job retries with backoff then `failed`; two workers never run the same job |
 | `list.test.ts` | Cursor pagination never skips or repeats rows (even with identical timestamps); filters; full-text search (description words, any word order, word forms, `"phrase"`, `-exclude`), partial title match, scoped to own teams |
@@ -88,7 +120,7 @@ npm run test:e2e               # 3 tests, about 10 seconds
 
 | Test | Proves |
 |---|---|
-| second approver | Two separate logins approve the same item. The second one's page **rolls back** and shows "This item changed, reload" with no false success message; Reload shows the real status |
+| second approver | Two separate logins approve the same item. The second one's page **rolls back** and shows "This item changed, reload" naming who approved it, with no false success message; Reload shows the real status |
 | 403 | When the server refuses (403), the UI rolls back and shows the server's exact reason |
 | optimistic claim | With the server reply delayed by 1.5 s, the UI already shows "in progress" before the server answers |
 

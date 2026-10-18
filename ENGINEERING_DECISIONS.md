@@ -13,7 +13,7 @@ The brief leaves these open on purpose. These are my assumptions; the ones marke
 | How does an item get an owner? | ★ Only by being **claimed** by a team Member/Lead/Admin. Claiming also moves it Open → In Progress. There is no "assign to someone else" yet. |
 | States and moves | Open → In Progress → Awaiting Approval → Resolved → Closed. Plus "Send back" (Awaiting Approval → In Progress) and "Reopen" (Resolved → In Progress). Closed is final. |
 | Who can approve? | ★ Lead or Admin **of the item's team**. A Lead in Payments has no rights in Support. |
-| Can the assignee approve their own item if they're a Lead? | ★ Yes, currently. A stricter "four-eyes" rule (approver ≠ assignee) would be a one-line change in `workflow.ts`. |
+| Can the assignee approve their own item if they're a Lead? | ★ No. Four-eyes: whoever submitted the item for approval cannot approve it, whatever their role (Admins included). |
 | Who can do other moves, edit and comment? | Any Member, Lead or Admin of the item's team, not only the assignee. |
 | Viewer | Read-only within their teams. |
 | Admin | A per-team role, at least as strong as Lead. There is no global super-admin. |
@@ -61,8 +61,9 @@ never saw.
 - Claim: `UPDATE ... SET assignee_id = $me ... WHERE id = $1 AND assignee_id IS NULL`.
 - PATCH and transition: `WHERE id = $1 AND version = $2`.
 
-Contention on a single ticket is rare, and a user who loses a race should be *told* ("This item changed,
-reload"), not made to wait. The condition is inside the `UPDATE`, so check-and-write is one atomic step.
+Contention on a single ticket is rare, and a user who loses a race should be *told* who got there first
+("Priya approved it since you loaded this item." / "Alice has already claimed this item."), not made to wait.
+The message is built from the newest history event, which the winning request has already committed. The condition is inside the `UPDATE`, so check-and-write is one atomic step.
 Postgres row-locks the row; the second writer waits for the first, then re-checks the `WHERE` against the
 new row and matches 0 rows. There is deliberately **no** JavaScript pre-check. That makes the SQL guard the only
 guard, so the test proves it: removing `AND assignee_id IS NULL` makes the claim test fail with `[200, 200]`.
@@ -213,7 +214,6 @@ insert, but a slow external call (email API) should instead mark the job "proces
 - **Idempotency keys never expire.** The table grows forever; it needs a scheduled cleanup (e.g. delete keys older than 24 h).
 - Idempotency covers only `POST /items`. A retried transition whose first response was lost returns 409 instead of the original success.
 - No reassign/unassign; an item's owner can only change by claiming it while Open.
-- The assignee can approve their own item if they are a Lead (no four-eyes rule).
 - JWT in `localStorage` (readable by any injected script), 8-hour expiry, no refresh token, no revocation list, no login rate limiting.
 - Search results are sorted newest first, not by relevance. Ranking (`ts_rank`) would need a different cursor,
   because keyset pagination needs a stable sort order. English stemming only; no typo tolerance.
@@ -229,7 +229,7 @@ insert, but a slow external call (email API) should instead mark the job "proces
 
 1. Add a scheduled cleanup for idempotency keys and old `done` outbox jobs, and a small admin view to retry `failed` jobs.
 2. Add Lead-only **reassign/unassign** with the same conditional-update pattern and its own tests.
-3. Extend the Playwright tests to the main pages (create, filters, comments) and run both test suites in CI on every push.
+3. Extend the Playwright tests to the main pages (create, filters, comments) and run them in CI too (today CI runs the type checks and server tests on every push).
 4. Paginate the activity endpoint and add read/unread notifications.
 5. Make multi-team list queries index-friendly (one query per team, merged), then load-test with 1M items and `EXPLAIN ANALYZE`.
 6. Harden auth: httpOnly cookie instead of `localStorage`, short-lived tokens with refresh, login rate limiting.
